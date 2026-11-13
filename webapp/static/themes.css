@@ -1,0 +1,93 @@
+/* Design systems for the TeslaCam dashboard (see ui/src/designs.js for the same values feeding Fluent).
+   Semantic variables per [data-theme], then the structural details each design is known for. */
+:root, [data-theme="house"] {
+  --font-display: 'Segoe UI', 'Segoe UI Web (West European)', 'Open Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: var(--font-display); --font-mono: Consolas, 'IBM Plex Mono', monospace; --display-tracking: 0; --display-weight: 600;
+  --bg-canvas: #FAFAFA; --bg-surface: #FFFFFF; --bg-sidebar: #F5F5F5; --bg-hover: #F0F0F0;
+  --text-primary: #242424; --text-secondary: #616161; --text-muted: #8A8A8A;
+  --accent-primary: #E84524; --accent-hover: #D9391C; --on-accent: #FFFFFF;
+  --border-subtle: #E0E0E0; --border-width: 0px; --radius-card: 8px; --radius-button: 4px; --shadow-card: 0 2px 4px rgba(0,0,0,.14);
+  --status-positive: #0E8A4F; --status-positive-bg: #E9F5EE; --status-positive-border: #9FD4B4;
+  --status-warning: #C27500; --status-warning-bg: #FFF4E0; --status-warning-border: #F2C86B;
+  --status-critical: #C4314B; --status-critical-bg: #FCEEF0; --status-critical-border: #F2A7B4;
+  --chart-1: #75756E; --chart-2: #C27500; --chart-3: #0E8A4F; --chart-4: #E84524; --chart-5: #8C8C85; --chart-6: #B5B5B0;
+}
+[data-theme="tremor"] {
+  --font-display: 'Inter', 'Geist Sans', -apple-system, sans-serif; --font-sans: var(--font-display); --font-mono: 'JetBrains Mono', 'IBM Plex Mono', monospace; --display-tracking: -0.015em; --display-weight: 600;
+  --bg-canvas: #F9FAFB; --bg-surface: #FFFFFF; --bg-sidebar: #F9FAFB; --bg-hover: #F3F4F6;
+  --text-primary: #111827; --text-secondary: #374151; --text-muted: #6B7280;
+  --accent-primary: #2563EB; --accent-hover: #1D4ED8; --on-accent: #FFFFFF;
+  --border-subtle: #E5E7EB; --border-width: 1px; --radius-card: 8px; --radius-button: 6px; --shadow-card: 0 1px 2px rgba(0,0,0,.04);
+  --status-positive: #047857; --status-positive-bg: #ECFDF5; --status-positive-border: #A7F3D0;
+  --status-warning: #B45309; --status-warning-bg: #FFFBEB; --status-warning-border: #FDE68A;
+  --status-critical: #BE123C; --status-critical-bg: #FFF1F2; --status-critical-border: #FECDD3;
+  --chart-1: #3B82F6; --chart-2: #06B6D4; --chart-3: #6366F1; --chart-4: #8B5CF6; --chart-5: #D946EF; --chart-6: #10B981;
+}
+[data-theme="plotly"] {
+  --font-display: 'Inter', 'IBM Plex Sans', sans-serif; --font-sans: var(--font-display); --font-mono: 'JetBrains Mono', 'IBM Plex Mono', monospace; --display-tracking: -0.01em; --display-weight: 600;
+  --bg-canvas: #F4F6F9; --bg-surface: #FFFFFF; --bg-sidebar: #F4F6F9; --bg-hover: #EEF2F6;
+  --text-primary: #1E293B; --text-secondary: #475569; --text-muted: #64748B;
+  --accent-primary: #0F766E; --accent-hover: #115E59; --on-accent: #FFFFFF;
+  --border-subtle: #DCE1E7; --border-width: 1px; --radius-card: 6px; --radius-button: 4px; --shadow-card: none;
+  --status-positive: #0F766E; --status-positive-bg: #F0FDFA; --status-positive-border: #99F6E4;
+  --status-warning: #D97706; --status-warning-bg: #FFFBEB; --status-warning-border: #FDE68A;
+  --status-critical: #E11D48; --status-critical-bg: #FFF1F2; --status-critical-border: #FECDD3;
+  --chart-1: #0F766E; --chart-2: #0284C7; --chart-3: #6366F1; --chart-4: #D97706; --chart-5: #E11D48; --chart-6: #64748B;
+}
+[data-theme="lovable"] {
+  --font-display: 'Plus Jakarta Sans', -apple-system, sans-serif; --font-sans: var(--font-display); --font-mono: 'JetBrains Mono', monospace; --display-tracking: -0.02em; --display-weight: 700;
+  --bg-canvas: #FAF9F6; --bg-surface: #FFFFFF; --bg-sidebar: #F5F3EE; --bg-hover: #F3F1EC;
+  --text-primary: #141413; --text-secondary: #4A4946; --text-muted: #8A8883;
+  --accent-primary: #141413; --accent-hover: #2A2927; --on-accent: #FFFFFF;
+  --border-subtle: #E8E5DE; --border-width: 1px; --radius-card: 18px; --radius-button: 999px; --shadow-card: 0 2px 8px rgba(20,20,19,.05);
+  --status-positive: #15803D; --status-positive-bg: #F0FDF4; --status-positive-border: #BBF7D0;
+  --status-warning: #C2410C; --status-warning-bg: #FFF7ED; --status-warning-border: #FED7AA;
+  --status-critical: #BE123C; --status-critical-bg: #FFF1F2; --status-critical-border: #FECDD3;
+  --chart-1: #F97066; --chart-2: #D946EF; --chart-3: #6366F1; --chart-4: #F59E0B; --chart-5: #10B981; --chart-6: #0EA5E9;
+  --hero-glow: radial-gradient(70% 90% at 10% 0%, rgba(20,20,19,.06), transparent 60%), radial-gradient(50% 70% at 90% 100%, rgba(20,20,19,.04), transparent 60%);
+}
+[data-theme="anthropic"] {
+  --font-display: 'Newsreader', Georgia, 'Times New Roman', serif; --font-sans: 'Inter', -apple-system, sans-serif; --font-mono: 'JetBrains Mono', monospace; --display-tracking: -0.005em; --display-weight: 500;
+  --bg-canvas: #F0EEE6; --bg-surface: #FBFAF6; --bg-sidebar: #EAE7DD; --bg-hover: #F2F0E8;
+  --text-primary: #141413; --text-secondary: #5E5D59; --text-muted: #87867F;
+  --accent-primary: #D97757; --accent-hover: #C4663F; --on-accent: #FFFFFF;
+  --border-subtle: #DCD9CE; --border-width: 1px; --radius-card: 10px; --radius-button: 6px; --shadow-card: none;
+  --status-positive: #5B7A3B; --status-positive-bg: #EEF2E4; --status-positive-border: #C5D3A8;
+  --status-warning: #B5742A; --status-warning-bg: #F8EFDF; --status-warning-border: #E6C89A;
+  --status-critical: #B23A3A; --status-critical-bg: #F7E6E3; --status-critical-border: #E5B5AE;
+  --chart-1: #D97757; --chart-2: #6A9BCC; --chart-3: #788C5D; --chart-4: #B5A186; --chart-5: #C46686; --chart-6: #87867F;
+}
+
+/* ---- what every design shares */
+body { background: var(--bg-canvas); font-family: var(--font-sans); }
+.display, .display .fui-BreadcrumbButton { font-family: var(--font-display); letter-spacing: var(--display-tracking); }
+.fui-Card { border: var(--border-width) solid var(--border-subtle); box-shadow: var(--shadow-card); border-radius: var(--radius-card); transition: box-shadow .15s, border-color .15s; }
+.fui-Text, .fui-TableCell, .fui-Badge { font-variant-numeric: tabular-nums; }
+.row, .srow, .rail-item, .fui-Button, .fui-Tab, .fui-NavItem { transition: background .15s, color .15s, box-shadow .15s; }
+
+/* ---- Tremor: hairline cards, blue underline tabs (the tab indicator is Fluent's own, in the brand colour) */
+[data-theme="tremor"] .fui-Card { box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+[data-theme="tremor"] .rail-item[aria-current="page"] { border: 1px solid var(--border-subtle); box-shadow: 0 1px 2px rgba(0,0,0,.04) !important; }
+
+/* ---- Plotly: 3px top-accent bars on KPI cards, uppercase micro-labels, mono for technical values */
+[data-theme="plotly"] .kpi { border-top: 3px solid var(--accent-primary); }
+[data-theme="plotly"] .micro { text-transform: uppercase; font-size: 11px; font-weight: 700; letter-spacing: .06em; color: var(--text-muted); }
+[data-theme="plotly"] .fui-TableCell, [data-theme="plotly"] .mono { font-family: var(--font-mono); font-size: 13px; }
+[data-theme="plotly"] .fui-Card { border-radius: 6px; }
+
+/* ---- Lovable: luminous sections, a soft mesh glow behind featured containers, obsidian pill buttons */
+[data-theme="lovable"] .featured { background: var(--hero-glow), var(--bg-surface); border-radius: var(--radius-card); padding: 28px 32px; border: 1px solid var(--border-subtle); }
+[data-theme="lovable"] .featured.fui-Card { background: var(--hero-glow), var(--bg-surface); }
+[data-theme="lovable"] .fui-Button, [data-theme="lovable"] .switcher button, [data-theme="lovable"] .fui-Badge, [data-theme="lovable"] .fui-SearchBox { border-radius: 999px; }
+[data-theme="lovable"] .fui-Card { border-radius: 18px; }
+[data-theme="lovable"] .rail-item[aria-current="page"] { border-radius: 16px; }
+[data-theme="lovable"] .panel { border-right: 0 !important; }
+
+/* ---- Anthropic: oatmeal paper, serif display headings, 1px stone rules, no drop shadows anywhere */
+[data-theme="anthropic"] .fui-Card, [data-theme="anthropic"] .rail-item, [data-theme="anthropic"] .switcher, [data-theme="anthropic"] .fui-Button { box-shadow: none !important; }
+[data-theme="anthropic"] .display { font-weight: var(--display-weight); }
+[data-theme="anthropic"] .rail-item[aria-current="page"] { border: 1px solid var(--border-subtle); }
+[data-theme="anthropic"] .fui-Divider::before, [data-theme="anthropic"] .fui-Divider::after { border-color: var(--border-subtle); }
+
+/* ---- dark mode */
+html[data-mode="dark"] body { background: #1F1F1F; }

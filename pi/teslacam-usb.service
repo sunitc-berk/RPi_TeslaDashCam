@@ -1,0 +1,15 @@
+[Unit]
+Description=Present TeslaCam drive to the car over USB
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Repair the drive's filesystem first if a power cut interrupted a write (never fatal: "-")
+ExecStartPre=-/sbin/fsck.vfat -a /piusb/cam.bin
+ExecStart=/sbin/modprobe g_mass_storage file=/piusb/cam.bin removable=1 ro=0 stall=0
+ExecStop=/sbin/modprobe -r g_mass_storage
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

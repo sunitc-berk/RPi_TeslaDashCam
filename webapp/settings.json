@@ -1,0 +1,8 @@
+{
+  "root": null,
+  "host": "127.0.0.1",
+  "port": 8080,
+  "index_interval_seconds": 300,
+  "trip_gap_minutes": 5,
+  "carto_api_key": ""
+}

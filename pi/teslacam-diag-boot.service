@@ -1,0 +1,12 @@
+[Unit]
+Description=TeslaCam diagnostics: record power-ups and clean shutdowns
+After=local-fs.target systemd-journald.service NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 /usr/local/bin/teslacam-diag.py --boot
+ExecStop=/usr/bin/python3 /usr/local/bin/teslacam-diag.py --shutdown
+
+[Install]
+WantedBy=multi-user.target

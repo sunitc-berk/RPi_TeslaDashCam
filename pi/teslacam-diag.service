@@ -1,0 +1,7 @@
+[Unit]
+Description=TeslaCam diagnostics sample and Wi-Fi watchdog
+
+[Service]
+Type=oneshot
+TimeoutStartSec=5min
+ExecStart=/usr/bin/python3 /usr/local/bin/teslacam-diag.py

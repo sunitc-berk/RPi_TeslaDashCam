@@ -1,0 +1,11 @@
+[Unit]
+Description=Copy Tesla dashcam clips to the home PC
+After=network-online.target teslacam-usb.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# backstop: a run that somehow hangs is stopped; the next run heals and continues
+TimeoutStartSec=2h
+KillMode=control-group
+ExecStart=/usr/local/bin/teslacam-sync.sh

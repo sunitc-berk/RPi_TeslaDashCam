@@ -1,0 +1,20 @@
+{
+  "name": "teslacam-dashboard-ui",
+  "private": true,
+  "version": "3.0.0",
+  "description": "TeslaCam dashboard front end: React + Fluent UI, bundled with esbuild into ../static/app.js",
+  "scripts": {
+    "build": "node build.js",
+    "watch": "node build.js --watch"
+  },
+  "dependencies": {
+    "@fluentui/react-calendar-compat": "^0.4.8",
+    "@fluentui/react-components": "^9.75.2",
+    "@fluentui/react-icons": "^2.0.345",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

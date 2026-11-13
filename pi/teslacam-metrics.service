@@ -1,0 +1,7 @@
+[Unit]
+Description=Record Raspberry Pi health metrics
+
+[Service]
+Type=oneshot
+TimeoutStartSec=3min
+ExecStart=/usr/bin/python3 /usr/local/bin/teslacam-metrics.py

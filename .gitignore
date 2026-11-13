@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Dashboard runtime data (built on your PC, not source)
+webapp/data/
+webapp/*.log
+webapp/nohup.out
+
+# Front-end build dependencies (npm install recreates them)
+webapp/ui/node_modules/
+
+# Backups made while iterating
+*.before-*
+*.bak
+*.orig
+**/static-before-*/
+**/backup-*/
+
+# Footage and metrics must never land in the repo
+*.mp4
+*.jsonl
+PiMetrics/
+RecentClips/
+SavedClips/
+SentryClips/
+EncryptedClips/
+Favorites/
+
+# Secrets
+.teslacam-smb
+*.creds
+*.pem
+*.key
+
+# OS and editors
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+
+# Design mockups from the dashboard work (not source)
+mockups/

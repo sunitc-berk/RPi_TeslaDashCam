@@ -1,0 +1,13 @@
+[Unit]
+Description=Save the car's RecentClips to the Pi's SD card before they are overwritten
+After=teslacam-usb.service
+
+[Service]
+Type=oneshot
+# low priority so the car's own recording always gets the SD card first
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=20min
+ExecStart=/usr/bin/python3 /usr/local/bin/teslacam-archive.py
+# if this job ever fails, say so in the diagnostics log (shown on the dashboard's System page)
+ExecStopPost=/usr/local/bin/teslacam-report-failure.sh archive
