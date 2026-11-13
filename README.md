@@ -46,6 +46,10 @@ Alongside it, `teslacam-archive.py` copies each finished minute of `RecentClips`
 
 The look is switchable (Settings → Look): five design systems, each defined once as CSS variables in `webapp/static/themes.css` and as a Fluent theme in `webapp/ui/src/designs.js`.
 
+<p align="center"><img src="docs/images/dashboard-evolution.gif" width="100%" alt="The Footage page in six versions, October 25 to November 13"></p>
+
+*How the Footage page changed over three weeks: six looks, the same footage. The 28 colour schemes that were tried and rejected along the way are in [docs/images/rejected-looks.png](docs/images/rejected-looks.png).*
+
 ## The build
 
 <table>
