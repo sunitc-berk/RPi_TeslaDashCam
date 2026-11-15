@@ -657,13 +657,20 @@ def live():
         if time.time() - _live_cache["t"] < 2 and _live_cache["v"]:
             return _live_cache["v"]
         now = time.time()
-        status = None
+        status, mtime = None, None
         p = ROOT / "PiMetrics" / "live" / "status.json"
         try:
             status = json.loads(p.read_text())
-            status["age_s"] = round(now - p.stat().st_mtime)
+            mtime = p.stat().st_mtime
+            status["age_s"] = round(now - mtime)
+            _live_cache["last_status"] = (status, mtime, now)
         except (OSError, ValueError):
-            status = None
+            # The Pi replaces this file every 5 s, so a read can land in the moment between the old file going and the
+            # new one arriving (or see half a file). The last good reading stands in for up to 30 s rather than erroring.
+            last = _live_cache.get("last_status")
+            if last and now - last[2] < 30:
+                status, mtime = dict(last[0]), last[1]
+                status["age_s"] = round(now - mtime)
         parts, arrived = _scan_arrivals(3600)
         arrived.sort()
         per_min = {}
@@ -675,8 +682,8 @@ def live():
         # what has landed since the current upload run began: the Pi only counts a batch once it is verified,
         # so this is the live figure the progress bar follows (run start = status file time - time the run has been going)
         run = None
-        if status and status.get("state") == "uploading":
-            run_start = p.stat().st_mtime - (status.get("elapsed_s") or 0) - 5
+        if status and mtime is not None and status.get("state") == "uploading":
+            run_start = mtime - (status.get("elapsed_s") or 0) - 5
             since = [a for a in arrived if a[0] >= run_start]
             run = {"files": len(since), "bytes": sum(a[2] for a in since)}
         v = {"server_time": now, "status": status, "run": run,
