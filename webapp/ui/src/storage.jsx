@@ -4,6 +4,7 @@ import { Text, Card, Divider, Spinner } from "@fluentui/react-components";
 import { api, todayStr, addDays, parseT, mo3, plural, fmtGB1 } from "./lib.js";
 import { useCrumb } from "./shell.jsx";
 import { T, useColors } from "./theme.js";
+const phone = () => document.documentElement.dataset.phone === "1";   // a phone column is too narrow for "Nov 10"
 
 const muted = { color: T.colorNeutralForeground2 };
 const Num = ({ v, u, size = 800 }) => <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}><Text size={size} weight="semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{v}</Text>{u && <Text size={400} style={muted}>{u}</Text>}</span>;
@@ -66,7 +67,7 @@ export function Storage() {
               <Text size={300} weight={x === peak && t > 0 ? "semibold" : "regular"} style={{ position: "absolute", left: -8, right: -8, bottom: px(t) + 4, textAlign: "center", zIndex: 3, whiteSpace: "nowrap", color: t <= 0.005 ? T.colorNeutralForeground3 : undefined }}>{label}</Text>
               {b.sentry > 0.005 && <span style={{ height: Math.max(1, px(b.sentry)), background: C.AMBER, borderRadius: "3px 3px 0 0", marginBottom: 2 }} />}{b.saved > 0.005 && <span style={{ height: Math.max(1, px(b.saved)), background: C.GREEN, borderRadius: "3px 3px 0 0", marginBottom: 2 }} />}
               {b.recent > 0.005 && <span style={{ height: Math.max(1, px(b.recent)), background: C.TRIP, borderRadius: b.sentry > 0.005 || b.saved > 0.005 ? 0 : "3px 3px 0 0" }} />}
-              <Text size={200} style={{ position: "absolute", left: -10, right: -10, top: "100%", marginTop: 8, textAlign: "center", color: x === today ? T.colorNeutralForeground1 : T.colorNeutralForeground2, fontWeight: x === today ? 600 : 400 }}>{fd(x)}</Text></div>; })}</div></div></Card>
+              <Text size={200} style={{ position: "absolute", left: -10, right: -10, top: "100%", marginTop: 8, textAlign: "center", color: x === today ? T.colorNeutralForeground1 : T.colorNeutralForeground2, fontWeight: x === today ? 600 : 400 }}>{phone() && x !== days[0] && !x.endsWith("-01") ? String(+x.slice(8)) : fd(x)}</Text></div>; })}</div></div></Card>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 16 }}>{numbers.map(([l, v, u, sub, tip]) => <Card key={l} title={tip} className="kpi" style={{ padding: "16px 20px", gap: 2 }}><Text className="micro" size={300} style={muted}>{l}</Text><Num v={v} u={u} size={700} /><Text size={200} style={muted}>{sub}</Text></Card>)}</div>
     </div></div>;
 }

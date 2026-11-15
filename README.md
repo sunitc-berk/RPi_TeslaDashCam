@@ -46,6 +46,10 @@ Alongside it, `teslacam-archive.py` copies each finished minute of `RecentClips`
 
 The look is switchable (Settings → Look): five design systems, each defined once as CSS variables in `webapp/static/themes.css` and as a Fluent theme in `webapp/ui/src/designs.js`.
 
+<p align="center"><img src="docs/images/dashboard-phone.png" width="100%" alt="The dashboard on an iPhone: the Footage list as cards, the calendar and filters in a bottom sheet, a drive with the big camera on top and the others in a strip, and the map"></p>
+
+**On a phone.** The same address on an iPhone or Android phone gets a phone layout: tabs along the bottom, each drive as a card, the calendar and filters in a bottom sheet, and the player with the big camera on top and the other five in a swipeable strip. The Uploads tab shows the live percentage while footage is coming in.
+
 <p align="center"><img src="docs/images/dashboard-evolution.gif" width="100%" alt="The Footage page in six versions, October 25 to November 13"></p>
 
 *How the Footage page changed over three weeks: six looks, the same footage. The 28 colour schemes that were tried and rejected along the way are in [docs/images/rejected-looks.png](docs/images/rejected-looks.png).*

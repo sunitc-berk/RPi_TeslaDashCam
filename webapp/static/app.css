@@ -59,3 +59,62 @@ html[data-mode="dark"] .hpop span { color: #ADADAD; }
 @keyframes flow { to { background-position: 32px 0; } }
 @media (prefers-reduced-motion: reduce) { .flow.on { animation: none; } }
 @media (max-width: 1100px) { .pipeline { flex-wrap: wrap; } .pipeline > div:nth-child(even) { flex: 1 1 100%; padding: 6px 0; } }
+
+/* ---- phones (html[data-phone="1"]: a phone browser, or any narrow touch screen; see usePhone in shell.jsx) */
+html[data-phone="1"] body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
+html[data-phone="1"] .page { padding: 12px 12px 20px !important; gap: 14px !important; }
+html[data-phone="1"] .page > * { flex-shrink: 0; }
+html[data-phone="1"] .fui-Card { border-radius: 16px; }
+html[data-phone="1"] .pbar .fui-TabList { padding: 0 8px 6px; }
+html[data-phone="1"] .ptab { -webkit-tap-highlight-color: transparent; }
+html[data-phone="1"] .ptab:active { opacity: .6; }
+html[data-phone="1"] .row { -webkit-tap-highlight-color: transparent; }
+html[data-phone="1"] .row:active { background: rgba(0,0,0,.05); }
+html[data-phone="1"] .psheet .cal { zoom: 1.2 !important; }
+html[data-phone="1"] .psheet .fui-NavItem { min-height: 44px; }
+/* two-column pages stack */
+html[data-phone="1"] .two { grid-template-columns: minmax(0,1fr) !important; gap: 14px !important; }
+html[data-phone="1"] .mapview { grid-template-columns: minmax(0,1fr) !important; grid-template-rows: auto auto; gap: 12px !important; }   /* the map first, then the list */
+html[data-phone="1"] .mapview > .fui-Card { order: -1; height: 52vh; min-height: 300px !important; }
+html[data-phone="1"] .mapview > div:first-child { overflow: visible !important; }
+/* player: one column, no keyboard hints, a compact transport bar, the camera strip scrolls sideways */
+html[data-phone="1"] .plback, html[data-phone="1"] .plhint, html[data-phone="1"] .plend { display: none !important; }
+html[data-phone="1"] .plgrid { grid-template-columns: minmax(0,1fr) !important; gap: 12px !important; }
+html[data-phone="1"] .plmap { max-width: none !important; }
+html[data-phone="1"] .tile.big { max-height: none !important; min-height: 0 !important; }
+html[data-phone="1"] .plstrip { display: grid; grid-auto-flow: column; grid-auto-columns: 31%; grid-template-columns: none !important; overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 2px; scrollbar-width: none; }
+html[data-phone="1"] .plstrip::-webkit-scrollbar { display: none; }
+html[data-phone="1"] .plstrip > .tile { scroll-snap-align: start; }
+html[data-phone="1"] .plclock { min-width: 0 !important; flex: 1 !important; }
+html[data-phone="1"] .plbar { flex-wrap: wrap; gap: 10px 14px !important; padding: 10px 14px 6px !important; }   /* the scrubber gets a full row of its own */
+html[data-phone="1"] .plseek { flex: 1 1 100% !important; order: 9; }
+html[data-phone="1"] .plseek .fui-Slider { --fui-Slider__thumb--size: 24px; }
+html[data-phone="1"] .plmapbox { height: 320px !important; }
+/* uploads: the headline block grows with its lines; the file list drops the day column */
+html[data-phone="1"] .uphead { height: auto !important; min-height: 120px; gap: 10px; }
+html[data-phone="1"] .upnums { flex-wrap: wrap !important; gap: 10px 18px !important; }
+html[data-phone="1"] .upkpis { width: 100%; justify-content: space-between; gap: 10px !important; flex-wrap: wrap; }
+html[data-phone="1"] .uplive { flex-wrap: wrap !important; overflow: visible !important; row-gap: 6px; }
+html[data-phone="1"] .upnote { display: none !important; }
+html[data-phone="1"] .upday { display: none !important; }
+html[data-phone="1"] .upcam { flex-basis: 84px !important; }
+html[data-phone="1"] .upwhen { flex-basis: 92px !important; }
+/* pi: the pipeline stacks, the timeline scrolls sideways, vitals in two columns */
+html[data-phone="1"] .pipeline { flex-direction: column; align-items: stretch !important; }        /* car, Pi and PC stack; the links sit between them */
+html[data-phone="1"] .pipeline > div { flex: 0 0 auto !important; }
+html[data-phone="1"] .pipeline > div:nth-child(odd) { padding: 12px 14px !important; }
+html[data-phone="1"] .pipeline > div:nth-child(even) { padding: 6px 28px !important; }
+html[data-phone="1"] .psheet .fui-NavSectionHeader { display: none; }                   /* the sheet's own title says "Show" */
+html[data-phone="1"] .uplist { height: auto !important; min-height: 64px; max-height: 256px; }
+html[data-phone="1"] .fui-MessageBar { white-space: normal; }
+html[data-phone="1"] .setrow { flex-direction: column; align-items: stretch !important; gap: 10px; padding: 14px 16px !important; }
+html[data-phone="1"] .setrow > .fui-Switch, html[data-phone="1"] .setrow > .fui-Button { align-self: flex-start; }
+html[data-phone="1"] .row:not(.pcard) { padding: 10px 12px !important; gap: 12px !important; }
+html[data-phone="1"] .setrow .fui-RadioGroup { flex-direction: row; flex-wrap: wrap; gap: 0 8px; }
+html[data-phone="1"] .tlwrap { overflow-x: auto; margin: 0 -8px; padding: 0 8px; scrollbar-width: thin; }
+html[data-phone="1"] .tl { min-width: 680px; }
+html[data-phone="1"] .vitals { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
+html[data-phone="1"] .vitals .fui-Card { padding: 12px 14px !important; }
+html[data-phone="1"] .vbig { flex-wrap: wrap; gap: 4px 8px !important; }                 /* the number and its badge may take two lines */
+html[data-phone="1"] .vbig .display { font-size: 26px !important; }
+html[data-phone="1"] .vsub { white-space: normal !important; }

@@ -35,7 +35,7 @@ export function Uploads() {
     else if (st.state === "staging") { title = "Copying clips from the car to the Pi"; sub = st.note || ""; }
     else if (st.state === "stopped") { title = "Upload paused"; sub = st.note || "It continues on the next run, within 2 minutes."; }
     else { const w = st.waiting || {}, wb = (w.recent_bytes || 0) + (w.event_bytes || 0); title = wb < 5e7 ? "All caught up" : `${fmtB(wb)} waiting on the Pi`; sub = wb < 5e7 ? "Everything recorded so far is on this PC." : "The next upload starts within 2 minutes."; }
-    head = <div style={{ height: 150, display: "flex", flexDirection: "column", justifyContent: "center", gap: 4 }}>
+    head = <div className="uphead" style={{ height: 150, display: "flex", flexDirection: "column", justifyContent: "center", gap: 4 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>{liveBadge}{liveText}</div>
       <Text className="display" size={600} weight="semibold" block style={{ marginTop: 6 }}>{title}</Text><Text size={300} style={muted}>{sub}</Text></div>;
   } else {
@@ -49,12 +49,12 @@ export function Uploads() {
     const f1 = clipT(st.batch_first), f2 = clipT(st.batch_last);
     const nw = { whiteSpace: "nowrap" };
     const kpi = (l, v, un) => <span style={{ display: "flex", alignItems: "baseline", gap: 5, flex: "none", ...nw }}><Text size={300} style={{ ...muted, ...nw }}>{l}</Text><Text size={400} weight="semibold" style={{ fontVariantNumeric: "tabular-nums", ...nw }}>{v}</Text>{un && <Text size={300} style={{ ...muted, ...nw }}>{un}</Text>}</span>;
-    head = <div style={{ height: 150, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap", overflow: "hidden" }}><Badge appearance="tint" color="brand" shape="rounded" size="large">Uploading {st.kind === "events" ? "Saved and Sentry clips" : "recent footage"}</Badge>{liveBadge}{liveText}</div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 18, flexWrap: "nowrap" }}><Num v={pct} u="%" size={1000} color={T.colorBrandForeground1} />
+    head = <div className="uphead" style={{ height: 150, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+      <div className="uplive" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap", overflow: "hidden" }}><Badge style={{ whiteSpace: "nowrap" }} appearance="tint" color="brand" shape="rounded" size="large">Uploading {st.kind === "events" ? "Saved and Sentry clips" : "recent footage"}</Badge>{liveBadge}{liveText}</div>
+      <div className="upnums" style={{ display: "flex", alignItems: "baseline", gap: 18, flexWrap: "nowrap" }}><Num v={pct} u="%" size={1000} color={T.colorBrandForeground1} />
         <div style={{ minWidth: 0 }}><Text size={400} weight="semibold" block style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{files.toLocaleString()} of {(st.files_total || 0).toLocaleString()} files</Text><Text size={300} style={{ ...muted, whiteSpace: "nowrap" }}>{fmtGB1(bytes)} of {fmtGB1(total)}, {fmtGB1(Math.max(0, total - bytes))} to go</Text></div>
         <span style={{ flex: 1 }} />
-        <div style={{ display: "flex", gap: 18 }}>{kpi("Speed", rate ? (rate / 1e6).toFixed(1) : "–", "MB/s")}{kpi("Time left", left == null ? "–" : left < 60 ? "< 1" : left < 5400 ? `≈ ${Math.round(left / 60)}` : `≈ ${(left / 3600).toFixed(1)}`, left == null ? "" : left < 5400 ? "min" : "h")}{kpi("Running", Math.round(elapsed / 60), "min")}</div></div>
+        <div className="upkpis" style={{ display: "flex", gap: 18 }}>{kpi("Speed", rate ? (rate / 1e6).toFixed(1) : "–", "MB/s")}{kpi("Time left", left == null ? "–" : left < 60 ? "< 1" : left < 5400 ? `≈ ${Math.round(left / 60)}` : `≈ ${(left / 3600).toFixed(1)}`, left == null ? "" : left < 5400 ? "min" : "h")}{kpi("Running", Math.round(elapsed / 60), "min")}</div></div>
       <div><ProgressBar value={pct / 100} thickness="large" />
         <Text size={300} truncate block style={{ ...muted, marginTop: 8, whiteSpace: "nowrap" }}>Batch {b} of {nb} · {st.batch_files || 0} files · {fmtB(st.batch_bytes)}{f1 ? ` · footage from ${f1[0]}, ${f1[1]}${f2 ? ` to ${f2[1]}` : ""}` : ""}</Text></div></div>;
   }
@@ -80,12 +80,12 @@ export function Uploads() {
         {head}
         <Divider style={{ margin: "12px 0 8px" }} />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}><Text size={300} weight="semibold">Files</Text><Text size={200} style={faint}>{L15.files} file{L15.files === 1 ? "" : "s"}, {fmtB(L15.bytes)} in the last 15 min</Text></div>
-        <div style={{ height: ROWS * 32, overflow: "hidden", marginTop: 4 }}>
+        <div className="uplist" style={{ height: ROWS * 32, overflow: "hidden", marginTop: 4 }}>
           {rows.length ? rows.map(r => <div key={r.key} style={{ height: 32, display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap" }}>
             <span style={{ width: 16, display: "grid", placeItems: "center", flex: "none" }}>{r.status === "receiving" ? <Spinner size="extra-tiny" /> : <CheckmarkCircle16Filled style={{ color: C.GREEN }} />}</span>
-            <Badge appearance="tint" color={r.status === "receiving" ? "brand" : "informative"} shape="rounded" style={{ flex: "0 0 96px", justifyContent: "center" }}>{r.cam}</Badge>
-            <Text size={300} style={{ flex: "0 0 104px", fontVariantNumeric: "tabular-nums" }}>{r.when}</Text><Text size={200} style={{ ...faint, flex: "0 0 48px" }}>{r.day}</Text>
-            <Text size={200} style={{ ...faint, flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>{r.status === "receiving" ? "receiving now" : `arrived ${r.at}`}</Text>
+            <Badge className="upcam" appearance="tint" color={r.status === "receiving" ? "brand" : "informative"} shape="rounded" style={{ flex: "0 0 96px", justifyContent: "center" }}>{r.cam}</Badge>
+            <Text className="upwhen" size={300} style={{ flex: "0 0 104px", fontVariantNumeric: "tabular-nums" }}>{r.when}</Text><Text className="upday" size={200} style={{ ...faint, flex: "0 0 48px" }}>{r.day}</Text>
+            <Text className="upnote" size={200} style={{ ...faint, flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>{r.status === "receiving" ? "receiving now" : `arrived ${r.at}`}</Text>
             <Text size={300} style={{ ...muted, flex: "0 0 60px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtB(r.size)}</Text></div>)
             : <Text size={300} style={{ ...muted, lineHeight: "32px" }}>Nothing has arrived in the last hour.</Text>}
         </div>

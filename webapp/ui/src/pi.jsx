@@ -166,7 +166,7 @@ export function Pi() {
     <Card style={{ padding: "18px 22px 14px", gap: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}><Text className="display" size={500} weight="semibold">The last {per}</Text>
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>{summary.map(([t, c]) => <span key={t} style={{ display: "flex", alignItems: "center", gap: 6 }}><Dot c={c} s={8} /><Text size={200} style={muted}>{t}</Text></span>)}</div></div>
-      <div style={{ display: "grid", gridTemplateColumns: "72px 1fr", gap: "0 12px", alignItems: "stretch" }}>
+      <div className="tlwrap"><div className="tl" style={{ display: "grid", gridTemplateColumns: "72px 1fr", gap: "0 12px", alignItems: "stretch" }}>
         <div style={{ position: "relative", height: H }}>{[["Pi", lanes.pi], ["Uploads", lanes.up], ["Events", lanes.ev]].map(([l, [a, b]]) => <Text key={l} size={200} style={{ ...faint, position: "absolute", top: `${(a + b) / 2 / H * 100}%`, transform: "translateY(-50%)", right: 0 }}>{l}</Text>)}</div>
         <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Timeline of the last ${per}: ${summary.map(s => s[0]).join(", ")}.`} style={{ width: "100%", height: H, display: "block" }}>
           {piBands.map((b, i) => b.kind === "off" ? null : <rect key={i} x={b.from / bs.length * W} y={lanes.pi[0]} width={(b.to - b.from) / bs.length * W} height={lanes.pi[1] - lanes.pi[0]} rx="3" fill={b.kind === "home" ? C.GREEN : C.OTHER} opacity={b.kind === "home" ? .85 : .9} />)}
@@ -178,15 +178,15 @@ export function Pi() {
           <line x1={W - 1} x2={W - 1} y1="0" y2={H - 12} stroke={C.BRAND} strokeWidth="2" vectorEffect="non-scaling-stroke" />
         </svg>
         <span /><div style={{ position: "relative", height: 16 }}>{hourTicks.map(([px, l], i) => <Text key={i} size={200} style={{ ...faint, position: "absolute", left: `${px / W * 100}%`, transform: "translateX(-50%)", whiteSpace: "nowrap" }}>{l}</Text>)}<Text size={200} weight="semibold" style={{ position: "absolute", right: 0, color: C.BRAND }}>now</Text></div>
-      </div>
+      </div></div>
     </Card>
 
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,230px),1fr))", gap: 16 }}>
+    <div className="vitals" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,230px),1fr))", gap: 16 }}>
       {vitals.map(v => <Card key={v.title} style={{ padding: "16px 20px", gap: 4 }}>
         <Text size={300} weight="semibold">{v.title}</Text>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}><Text className="display" size={800} weight="semibold" style={{ lineHeight: 1.1, whiteSpace: "nowrap" }}>{v.big}</Text>{stateBadge(v.state)}</div>
+        <div className="vbig" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}><Text className="display" size={800} weight="semibold" style={{ lineHeight: 1.1, whiteSpace: "nowrap" }}>{v.big}</Text>{stateBadge(v.state)}</div>
         <Gauge g={v.gauge} />
-        <Text size={200} style={muted} block truncate>{v.sub}</Text>
+        <Text className="vsub" size={200} style={muted} block truncate>{v.sub}</Text>
         {v.spark ? <Spark k={v.spark[0]} range={v.spark[1]} marks={v.spark[2]} /> : <Bars bars={v.bars} />}
       </Card>)}
     </div>

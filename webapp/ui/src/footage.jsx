@@ -5,7 +5,7 @@ import { Text, Card, Badge, CounterBadge, Divider, Nav, NavItem, NavSectionHeade
 import { Calendar } from "@fluentui/react-calendar-compat";
 import { List20Regular, Map20Regular, ChevronRight20Regular, ChevronDown20Regular, ChevronUp20Regular, Eye16Filled, Pin16Filled, Pin16Regular, Dismiss16Regular, VehicleCar24Regular } from "@fluentui/react-icons";
 import { api, media, parseT, t12, range12, durWords, milesText, plural, dayLong, dayMid, dayLabel, todayStr, MO, itemTitle, placeText, itemHref, whyText, FAV, useStore, isKept, toggleKeep, useStill, setParams, go, BUS, pad } from "./lib.js";
-import { useCrumb, InPanel, InTop } from "./shell.jsx";
+import { useCrumb, InPanel, InTop, useShell } from "./shell.jsx";
 import { T, useColors, CAT } from "./theme.js";
 import { streetLayer } from "./maps.js";
 
@@ -39,7 +39,7 @@ const Dot = ({ c, s = 12 }) => <span style={{ display: "inline-block", width: s,
 const muted = { color: T.colorNeutralForeground2 };
 
 export function Footage({ params, kept }) {
-  const C = useColors();
+  const C = useColors(), sh = useShell() || {}, phone = !!sh.phone, closeSheet = sh.closeSheet || (() => {});
   const [data, setData] = useState(null), [err, setErr] = useState(null);
   const showP = params.get("show"), q = kept ? "" : (params.get("q") || "").trim(), month = params.get("month") || "";
   const [show, setShow] = useState(SHOWS.some(s => s[0] === showP) && !(kept && showP === "kept") ? showP : "all");
@@ -65,7 +65,7 @@ export function Footage({ params, kept }) {
     <InTop><TabList selectedValue={view} onTabSelect={(e, d) => { setView(d.value); setSel(null); }} size="medium" aria-label="View">
       <Tab value="list" icon={<List20Regular />}>List</Tab><Tab value="map" icon={<Map20Regular />}>Map</Tab></TabList></InTop>
     <InPanel>
-      <div style={{ flex: "none" }}><Nav selectedValue={show} onNavItemSelect={(e, d) => { setShow(d.value); setSel(null); }} style={{ background: "transparent", minWidth: 0, width: "100%", height: "auto" }}>
+      <div style={{ flex: "none" }}><Nav selectedValue={show} onNavItemSelect={(e, d) => { setShow(d.value); setSel(null); closeSheet(); }} style={{ background: "transparent", minWidth: 0, width: "100%", height: "auto" }}>
         <NavSectionHeader>Show</NavSectionHeader>
         {shows.map(([k, l]) => <NavItem key={k} value={k} icon={<Dot c={k === "all" ? T.colorNeutralForeground1 : k === "kept" ? T.colorNeutralForeground3 : CAT(C, k === "drives" ? "drive" : k === "parked" ? "parked" : k)} />}>
           <span style={{ display: "flex", alignItems: "center", width: "100%", gap: 8 }}><span style={{ flex: 1 }}>{l}</span>
@@ -74,8 +74,11 @@ export function Footage({ params, kept }) {
       <Divider style={{ flex: "none" }} />
       {kept ? <Text size={300} style={{ ...muted, padding: "0 14px" }}>Kept footage is never removed. Drive footage you do not keep is removed after {data.keep_days || 30} days.</Text>
         : data.q ? <Text size={300} style={{ ...muted, padding: "0 14px" }}>Showing every month. Clear the search to see the calendar.</Text>
-        : data.month ? <MonthCalendar data={data} C={C} onDay={day => { if (day.slice(0, 7) === data.month) { if (view !== "list") setView("list"); if (!jumpToDay(bodyRef.current, day) && show !== "all") { setShow("all"); setTimeout(() => jumpToDay(bodyRef.current, day), 50); } } else go("drives", { month: day.slice(0, 7), day, show: show === "all" ? "" : show }); }} /> : null}
+        : data.month ? <MonthCalendar data={data} C={C} onDay={day => { closeSheet(); if (day.slice(0, 7) === data.month) { if (view !== "list") setView("list"); setTimeout(() => { if (!jumpToDay(bodyRef.current, day) && show !== "all") { setShow("all"); setTimeout(() => jumpToDay(bodyRef.current, day), 50); } }, phone ? 250 : 0); } else go("drives", { month: day.slice(0, 7), day, show: show === "all" ? "" : show }); }} /> : null}
     </InPanel>
+    {phone && show !== "all" && <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "none", padding: "0 2px" }}>
+      <Dot c={show === "kept" ? T.colorNeutralForeground3 : CAT(C, show === "drives" ? "drive" : show === "parked" ? "parked" : show)} /><Text size={300}>Showing <b>{SHOWS.find(x => x[0] === show)?.[1]}</b></Text>
+      <Button appearance="subtle" size="small" icon={<Dismiss16Regular />} onClick={() => { setShow("all"); setSel(null); }}>Everything</Button></div>}
     {data.q && <div style={{ display: "flex", alignItems: "center", gap: 14, flex: "none" }}>
       <Text size={400}><b>{items.length}</b> {items.length === 1 ? "result" : "results"} for “{data.q}”</Text>
       <Button appearance="subtle" icon={<Dismiss16Regular />} onClick={() => go("drives", {})}>Clear search</Button></div>}
@@ -85,7 +88,8 @@ export function Footage({ params, kept }) {
         {byDay(items).map(([day, list]) => <section key={day} data-day-anchor={day} style={{ flex: "none", display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "0 4px", flexWrap: "wrap" }}><Text size={500} weight="semibold" className="display dayhead">{dayTitle(day)}</Text><Text size={300} style={muted}>{daySummary(list)}</Text>
             {removedSoon(list) && <Badge appearance="tint" color="warning" shape="rounded" size="large">{removedSoon(list)}</Badge>}</div>
-          <Card style={{ padding: 0, gap: 0 }}>{list.map((it, i) => <React.Fragment key={it.id}>{i > 0 && <Divider />}<Row it={it} C={C} /></React.Fragment>)}</Card></section>)}
+          {phone ? <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{list.map(it => <Card key={it.id} style={{ padding: 0, gap: 0, overflow: "hidden" }}><Row it={it} C={C} phone /></Card>)}</div>
+            : <Card style={{ padding: 0, gap: 0 }}>{list.map((it, i) => <React.Fragment key={it.id}>{i > 0 && <Divider />}<Row it={it} C={C} /></React.Fragment>)}</Card>}</section>)}
         {!kept && !data.q && !data.place_names && data.items.some(i => i.type === "drive" && (!i.frm?.name || !i.to?.name)) &&
           <Text size={300} style={{ ...muted, padding: "0 4px" }}>Drives are named by place when place names are turned on. <Link href="#/system">Turn that on in Settings</Link></Text>}
       </div>}
@@ -136,7 +140,7 @@ function MonthCalendar({ data, C, onDay }) {
 }
 
 // ---------------------------------------------------------------- one row of the list
-function Thumb({ it, member, C }) {                           // a frame of the front camera for drives; the car's own thumbnail for clips
+function Thumb({ it, member, C, wide, small }) {                    // small: a phone row                           // a frame of the front camera for drives; the car's own thumbnail for clips
   const m = member || it, isVideo = it.type === "drive" || it.type === "parked";
   const { ref, url } = useStill(isVideo && !it.encrypted ? it.still : null);
   const img = isVideo ? url : m.thumb ? media(m.thumb) : null;
@@ -145,10 +149,10 @@ function Thumb({ it, member, C }) {                           // a frame of the 
     : it.type === "parked" ? <Badge appearance="filled" shape="rounded" style={{ background: "rgba(0,0,0,.6)", color: "#fff" }}>{it.encrypted ? "Encrypted" : "Parked"}</Badge>
     : it.type === "sentry" ? <Badge appearance="filled" color="warning" shape="rounded" icon={<Eye16Filled />}>{it.count > 1 ? `${it.count} clips` : "Sentry"}</Badge>
     : <Badge appearance="filled" color="success" shape="rounded">Saved</Badge>;
-  return <span ref={ref} aria-hidden="true" style={{ position: "relative", flex: "none", width: 150, height: 84, borderRadius: T.borderRadiusMedium, overflow: "hidden", background: it.type === "sentry" ? C.AMBER : it.type === "saved" ? C.GREEN : T.colorNeutralBackground5, display: "grid", placeItems: "center", color: it.type === "drive" || it.type === "parked" ? T.colorNeutralForeground3 : "#fff" }}>
+  return <span ref={ref} aria-hidden="true" style={{ position: "relative", flex: "none", ...(wide ? { width: "100%", aspectRatio: "16 / 9", borderRadius: 0 } : small ? { width: 112, height: 63, borderRadius: T.borderRadiusMedium } : { width: 150, height: 84, borderRadius: T.borderRadiusMedium }), overflow: "hidden", background: it.type === "sentry" ? C.AMBER : it.type === "saved" ? C.GREEN : T.colorNeutralBackground5, display: "grid", placeItems: "center", color: it.type === "drive" || it.type === "parked" ? T.colorNeutralForeground3 : "#fff" }}>
     {it.type === "parked" ? <Text className="display" size={600} weight="semibold" style={{ color: "inherit" }}>P</Text> : it.type === "drive" ? <VehicleCar24Regular /> : it.type === "sentry" ? <Eye16Filled /> : <Pin16Filled />}
     {img && !broken && <img src={img} alt="" onError={() => setBroken(true)} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
-    {!member && <span style={{ position: "absolute", right: 6, bottom: 6 }}>{badge}</span>}</span>;
+    {!member && <span style={{ position: "absolute", left: wide ? 10 : "auto", right: wide ? "auto" : 6, bottom: wide ? 10 : 6 }}>{badge}</span>}</span>;
 }
 // a small sketch of the route: the shape of a drive tells two drives apart at a glance
 function RouteSketch({ route, w = 86, h = 48, p = 8 }) {
@@ -173,32 +177,41 @@ function KeepCell({ it }) {
 }
 const rowStyle = { display: "flex", alignItems: "center", gap: 16, padding: "10px 16px", color: "inherit", textDecoration: "none", cursor: "pointer" };
 // a row opens the player; links inside it (saved moments) go to their own place
-const RowLink = ({ href, children, style }) => <div className="row" role="link" tabIndex={0} style={{ ...rowStyle, ...style }} onClick={() => { location.hash = href; }}
+const RowLink = ({ href, children, style, cls = "" }) => <div className={"row " + cls} role="link" tabIndex={0} style={{ ...rowStyle, ...style }} onClick={() => { location.hash = href; }}
   onKeyDown={e => { if (e.key === "Enter") location.hash = href; }}>{children}</div>;
-function Row({ it, C }) {
+function Row({ it, C, phone }) {
   const [open, setOpen] = useState(false);
   const s = parseT(it.start), e = parseT(it.end), chev = <ChevronRight20Regular style={{ color: T.colorNeutralForeground3, flex: "none" }} />;
-  const Meta = ({ main, rest }) => <div style={{ display: "flex", gap: 16, marginTop: 2, flexWrap: "wrap" }}><Text size={300} weight="semibold">{main}</Text>{rest.filter(Boolean).map((x, i) => typeof x === "string" ? <Text key={i} size={300} style={muted}>{x}</Text> : <React.Fragment key={i}>{x}</React.Fragment>)}</div>;
-  if (it.type === "drive") return <RowLink href={itemHref(it)}><Thumb it={it} C={C} />
+  const Meta = ({ main, rest }) => <div style={{ display: "flex", gap: phone ? 12 : 16, marginTop: 2, flexWrap: "wrap" }}><Text size={300} weight="semibold">{main}</Text>{rest.filter(Boolean).map((x, i) => typeof x === "string" ? <Text key={i} size={300} style={muted}>{x}</Text> : <React.Fragment key={i}>{x}</React.Fragment>)}</div>;
+  // on a phone a drive is a card: the picture across the top with the route sketched in its corner, the words underneath
+  if (it.type === "drive" && phone) return <RowLink href={itemHref(it)} cls="pcard" style={{ flexDirection: "column", alignItems: "stretch", gap: 0, padding: 0 }}>
+    <div style={{ position: "relative" }}><Thumb it={it} C={C} wide />
+      <span style={{ position: "absolute", right: 10, bottom: 10, padding: 3, borderRadius: T.borderRadiusMedium, background: "rgba(255,255,255,.92)", boxShadow: T.shadow4 }}><RouteSketch route={it.route} w={78} h={46} /></span></div>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px 12px" }}>
+      <div style={{ flex: 1, minWidth: 0 }}><Text size={400} weight="semibold" block truncate>{itemTitle(it)}</Text>
+        <Meta main={range12(s, e)} rest={[milesText(it.miles), it.top_mph ? `top ${it.top_mph} mph` : "",
+          ...(it.saved || []).map(sv => <a key={sv.time} href={itemHref(it, Math.max(0, sv.pos - 10))} onClick={e => e.stopPropagation()} style={{ textDecoration: "none" }}><Badge appearance="tint" color="success" shape="rounded" size="large">Saved {t12(parseT(sv.time))}</Badge></a>)]} /></div>
+      <KeepCell it={it} />{chev}</div></RowLink>;
+  if (it.type === "drive") return <RowLink href={itemHref(it)}><Thumb it={it} C={C} small={phone} />
     <div style={{ flex: 1, minWidth: 0 }}><Text size={400} weight="semibold" block truncate>{itemTitle(it)}</Text>
       <Meta main={range12(s, e)} rest={[milesText(it.miles), it.top_mph ? `top ${it.top_mph} mph` : "",
         ...(it.saved || []).map(sv => <a key={sv.time} href={itemHref(it, Math.max(0, sv.pos - 10))} onClick={e => e.stopPropagation()} style={{ textDecoration: "none" }}><Badge appearance="tint" color="success" shape="rounded" size="large" title="Play from this moment">Saved moment {t12(parseT(sv.time))}</Badge></a>)]} /></div>
     <KeepCell it={it} /><RouteSketch route={it.route} />{chev}</RowLink>;
   if (it.type === "parked") { const pl = placeText(it.place);
-    return <RowLink href={itemHref(it)}><Thumb it={it} C={C} />
+    return <RowLink href={itemHref(it)}><Thumb it={it} C={C} small={phone} />
       <div style={{ flex: 1, minWidth: 0 }}><Text size={400} style={muted} block>{itemTitle(it)}</Text><Meta main={range12(s, e)} rest={[it.at_home ? "at home" : pl ? "at " + pl : "away from home"]} /></div>
       <KeepCell it={it} />{chev}</RowLink>; }
   const pl = placeText(it.place), why = whyText(it.reason);
   const where = pl ? (it.type === "sentry" ? (it.place.home ? "parked at home" : `parked in ${pl}`) : pl) : "";
   const chip = why ? <Badge appearance="tint" color={it.type === "sentry" ? "warning" : "success"} shape="rounded" size="large">{why}</Badge> : null;
   if (it.type === "sentry" && it.count > 1) return <>
-    <div className="row" role="button" tabIndex={0} aria-expanded={open} onClick={() => setOpen(!open)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(!open); } }} style={{ ...rowStyle, cursor: "pointer" }}><Thumb it={it} C={C} />
+    <div className="row" role="button" tabIndex={0} aria-expanded={open} onClick={() => setOpen(!open)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(!open); } }} style={{ ...rowStyle, cursor: "pointer" }}><Thumb it={it} C={C} small={phone} />
       <div style={{ flex: 1, minWidth: 0 }}><div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><Text size={400} weight="semibold">{itemTitle(it)}</Text>{chip}</div><Meta main={range12(s, e)} rest={[where]} /></div>
-      <Text size={300} style={muted}>{open ? "Hide" : "Show all"}</Text>{open ? <ChevronUp20Regular style={{ color: T.colorNeutralForeground3 }} /> : <ChevronDown20Regular style={{ color: T.colorNeutralForeground3 }} />}</div>
-    {open && <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "0 16px 12px 56px" }}>{it.members.map(m => <RowLink key={m.id} href={`#/player?event=${encodeURIComponent(m.id)}`} style={{ padding: "6px 10px", gap: 14, borderRadius: T.borderRadiusMedium }}>
+      {!phone && <Text size={300} style={muted}>{open ? "Hide" : "Show all"}</Text>}{open ? <ChevronUp20Regular style={{ color: T.colorNeutralForeground3 }} /> : <ChevronDown20Regular style={{ color: T.colorNeutralForeground3 }} />}</div>
+    {open && <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: phone ? "0 8px 10px 8px" : "0 16px 12px 56px" }}>{it.members.map(m => <RowLink key={m.id} href={`#/player?event=${encodeURIComponent(m.id)}`} style={{ padding: "6px 10px", gap: 14, borderRadius: T.borderRadiusMedium }}>
       <span style={{ width: 96, height: 54, flex: "none", borderRadius: T.borderRadiusSmall, overflow: "hidden", background: T.colorNeutralBackground5 }}>{m.thumb && <img src={media(m.thumb)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}</span>
       <Text size={300} weight="semibold" style={{ flex: "0 0 80px" }}>{t12(parseT(m.time))}</Text><Text size={300} style={{ ...muted, flex: 1 }}>{whyText(m.reason) || "Sentry alert"}</Text>{chev}</RowLink>)}</div>}</>;
-  return <RowLink href={itemHref(it)}><Thumb it={it} C={C} />
+  return <RowLink href={itemHref(it)}><Thumb it={it} C={C} small={phone} />
     <div style={{ flex: 1, minWidth: 0 }}><div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><Text size={400} weight="semibold">{itemTitle(it)}</Text>{chip}</div>
       <Meta main={t12(s)} rest={[it.dur ? durWords(it.dur) : "", where]} /></div>
     <KeepCell it={it} />{chev}</RowLink>;

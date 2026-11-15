@@ -66,6 +66,10 @@ Run once from this folder:  `.venv\Scripts\python fix-file-times.py`
 
 Restart the dashboard after changing settings.
 
+## On a phone
+
+Open the same address on an iPhone or Android phone and the dashboard switches to a phone layout by itself (bottom tabs, drives as cards, the calendar and filters in a bottom sheet). It goes by the browser's user agent, or by any narrow touch screen. Add `?phone=1` or `?phone=0` to the address to force one layout or the other.
+
 ## Changing the look (the front end)
 
 The pages are built with React and Microsoft's Fluent UI, bundled into one file, `static/app.js`.

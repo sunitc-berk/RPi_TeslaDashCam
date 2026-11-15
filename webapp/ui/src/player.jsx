@@ -60,7 +60,7 @@ export function Player({ params }) {
   const startAt = Math.max(0, Math.min(+params.get("t") || 0, segs.length * 60 - 1));
   return <>
     <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-      <Button appearance="subtle" size="large" icon={<ArrowLeft20Regular />} as="a" href="#/drives" onClick={back} aria-label="Back to the list" />
+      <Button className="plback" appearance="subtle" size="large" icon={<ArrowLeft20Regular />} as="a" href="#/drives" onClick={back} aria-label="Back to the list" />
       <div style={{ minWidth: 0 }}><Text className="display" size={600} weight="semibold" block truncate>{title}</Text><Text size={300} style={muted}>{[dayText, ...facts].filter(Boolean).join(", ")}</Text></div>
       <span style={{ flex: 1 }} />
       {clip.id && <KeepButton id={clip.id} itemType={clip.itemType} current={clip.favorite} size="large" words={`Keep ${keepWhat}`} />}
@@ -170,25 +170,25 @@ function Stage({ clip, segs, marks, startAt }) {
           <Badge style={lab} appearance="filled" shape="rounded" size="large">{CAM_SHORT[slots.big]}</Badge>
           {missing(slots.big) && <span className="miss">{missText}</span>}
           <Button className="fsbtn" appearance="subtle" icon={<FullScreenMaximize20Regular />} aria-label="Full screen" title="Full screen" onClick={fullScreen} style={{ position: "absolute", right: 8, top: 8, zIndex: 2, color: "#fff", background: "rgba(0,0,0,.5)" }} /></div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>{SLOTS.slice(1).map(s => <div key={s} ref={el => tiles.current[s] = el} className="tile" role="button" tabIndex={0} title="Click to make this camera big" aria-label={`Show the ${CAM_NAMES[slots[s]].toLowerCase()} camera big`}
+        <div className="plstrip" style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>{SLOTS.slice(1).map(s => <div key={s} ref={el => tiles.current[s] = el} className="tile" role="button" tabIndex={0} title="Click to make this camera big" aria-label={`Show the ${CAM_NAMES[slots[s]].toLowerCase()} camera big`}
           onClick={e => { swapInto(slots[s]); if (e.detail) e.currentTarget.blur(); }} onKeyDown={e => { if (e.key === "Enter") swapInto(slots[s]); }}
           style={{ position: "relative", aspectRatio: "1.6", borderRadius: T.borderRadiusLarge, background: "#222", overflow: "hidden", cursor: "pointer" }}>
           <Badge style={{ ...lab, left: 6, top: 6 }} appearance="filled" shape="rounded">{CAM_SHORT[slots[s]]}</Badge>{missing(slots[s]) && <span className="miss">{missText}</span>}</div>)}</div>
       </div>
-      <Card style={{ flexDirection: "row", alignItems: "center", gap: 14, padding: "8px 14px", marginTop: 4 }}>
+      <Card className="plbar" style={{ flexDirection: "row", alignItems: "center", gap: 14, padding: "8px 14px", marginTop: 4 }}>
         <Button appearance="primary" shape="circular" size="large" icon={playing ? <Pause24Filled /> : <Play24Filled />} aria-label={playing ? "Pause" : "Play"} onClick={() => setPlaying(!playing)} />
-        <Text size={300} weight="semibold" style={{ flex: "none", minWidth: 96, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{clock}</Text>
-        <div style={{ flex: 1, position: "relative", display: "flex", minWidth: 0 }} onPointerUp={() => { if (scrub != null) { p.seeking = false; seekTo(scrub); setScrub(null); } }} onKeyUp={() => { if (scrub != null) { p.seeking = false; seekTo(scrub); setScrub(null); } }}>
+        <Text className="plclock" size={300} weight="semibold" style={{ flex: "none", minWidth: 96, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{clock}</Text>
+        <div className="plseek" style={{ flex: 1, position: "relative", display: "flex", minWidth: 0 }} onPointerUp={() => { if (scrub != null) { p.seeking = false; seekTo(scrub); setScrub(null); } }} onKeyUp={() => { if (scrub != null) { p.seeking = false; seekTo(scrub); setScrub(null); } }}>
           <Slider min={0} max={total} step={0.1} value={shownPos} aria-label="Playback position" aria-valuetext={`${clock}, ${Math.floor(shownPos / 60)} of ${Math.round(total / 60)} minutes`} style={{ flex: 1 }}
             onChange={(e, dd) => { p.seeking = true; setScrub(dd.value); }} />
           <div aria-hidden="true" style={{ position: "absolute", left: 10, right: 10, top: "50%", height: 0, pointerEvents: "none" }}>{marks.filter(m => m.t >= 0 && m.t <= total).map((m, i) => <span key={i} title={m.label} style={{ position: "absolute", left: `${m.t / total * 100}%`, top: -5, width: 10, height: 10, marginLeft: -5, borderRadius: "50%", background: m.kind === "sentry" ? C.AMBER : C.GREEN, border: "2px solid #fff", boxShadow: T.shadow2 }} />)}</div>
         </div>
-        <Text size={300} style={muted}>{t12(wallAt(total - 1))}</Text>
+        <Text className="plend" size={300} style={muted}>{t12(wallAt(total - 1))}</Text>
         <Menu checkedValues={{ speed: [String(speed)] }} onCheckedValueChange={(e, dd) => setSpeed(+dd.checkedItems[0])}>
           <MenuTrigger disableButtonEnhancement><Button appearance="outline" icon={<ChevronDown16Regular />} iconPosition="after" title="Playback speed">{speed}×</Button></MenuTrigger>
           <MenuPopover><MenuList>{SPEEDS.map(s => <MenuItemRadio key={s} name="speed" value={String(s)}>{s}×</MenuItemRadio>)}</MenuList></MenuPopover></Menu>
       </Card>
-      <Text size={200} style={{ ...muted, padding: "0 4px" }}>Space plays and pauses · ← → skip 10 seconds · , . step a frame · 1–6 pick the big camera</Text>
+      <Text className="plhint" size={200} style={{ ...muted, padding: "0 4px" }}>Space plays and pauses · ← → skip 10 seconds · , . step a frame · 1–6 pick the big camera</Text>
     </div>
     <PlayerMap clip={clip} segs={segs} P={p} onSeek={seekTo} C={C} />
   </div>;
@@ -285,7 +285,7 @@ function PlayerMap({ clip, segs, P, onSeek, C }) {
   const miles = st.done && st.miles >= 0.1 ? `${f(hud?.i >= 0 ? st.cum[hud.i] : 0)} of ${f(st.miles)} miles` : st.done ? status : "Reading location…";
   const hudBox = { position: "absolute", left: 12, top: 12, zIndex: 500, display: "flex", alignItems: "center", gap: 8, padding: "6px 10px 6px 14px", borderRadius: T.borderRadiusMedium, background: T.colorNeutralBackground1, boxShadow: T.shadow8 };
   return <Card style={{ padding: 0, gap: 0, alignSelf: "start", overflow: "hidden" }} className="plmap">
-    <div style={{ position: "relative", height: 460 }}>
+    <div className="plmapbox" style={{ position: "relative", height: 460 }}>
       <div ref={box} className="gray" style={{ position: "absolute", inset: 0 }} aria-hidden="true" />
       {hud && <div style={hudBox}>{hud.parked ? <Text className="display" size={500} weight="semibold">Parked</Text> : hud.none ? <Text size={300} style={muted}>No location here</Text>
         : <>{hud.gear === "R" ? <Text className="display" size={500} weight="semibold">Reversing</Text> : hud.gear === "P" ? <Text className="display" size={500} weight="semibold">Parked</Text> : <><Text className="display" size={700} weight="semibold">{Math.round(hud.mph)}</Text><Text size={300} style={muted}>mph</Text></>}
