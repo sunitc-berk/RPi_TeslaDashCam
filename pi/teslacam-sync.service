@@ -8,4 +8,9 @@ Type=oneshot
 # backstop: a run that somehow hangs is stopped; the next run heals and continues
 TimeoutStartSec=2h
 KillMode=control-group
+# Upload tuning for the USB Wi-Fi 6E stick (Nov 2026): three uploads at once, ~800 MB per smbclient session.
+# The built-in radio managed two; the stick and the SD card can feed three.
+Environment=TESLACAM_PARALLEL=3
+Environment=TESLACAM_BATCH_BYTES=800000000
+Environment=TESLACAM_BATCH=40
 ExecStart=/usr/local/bin/teslacam-sync.sh
