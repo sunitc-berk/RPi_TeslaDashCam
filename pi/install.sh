@@ -38,7 +38,7 @@ nmcli -t -f NAME,TYPE connection show | while IFS= read -r line; do
     nmcli connection modify "${line%:*}" connection.autoconnect yes connection.autoconnect-retries 0 || true
 done
 nmcli general reload conf 2>/dev/null || true
-iw dev wlan0 set power_save off 2>/dev/null || true
+for w in /sys/class/net/wl*; do iw dev "$(basename "$w")" set power_save off 2>/dev/null || true; done
 
 # Logs survive power cuts (Raspberry Pi OS keeps them in memory only by default)
 mkdir -p /var/log/journal /etc/systemd/journald.conf.d

@@ -28,6 +28,19 @@ import time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+def wifi_iface():
+    """The Wi-Fi interface carrying the default route (the USB stick when it is up, else the built-in radio)."""
+    try:
+        out = subprocess.run(["ip", "-4", "route", "show", "default"], capture_output=True, text=True, timeout=5).stdout
+        for line in out.splitlines():
+            m = re.search(r"\bdev (wl\S+)", line)
+            if m:
+                return m.group(1)
+    except Exception:
+        pass
+    return "wlan0"
+
+
 CAR_TZ = ZoneInfo("America/Los_Angeles")       # the car writes local time
 STATE_DIR = "/var/lib/teslacam"
 METRICS_DIR = f"{STATE_DIR}/metrics"
@@ -137,7 +150,7 @@ def sd_card_errors_this_boot():
 
 
 def wifi():
-    out = run(["iw", "dev", "wlan0", "link"])
+    out = run(["iw", "dev", wifi_iface(), "link"])
     w = {"connected": False}
     if out and out.startswith("Connected"):
         w["connected"] = True

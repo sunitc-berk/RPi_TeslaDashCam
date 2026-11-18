@@ -35,6 +35,19 @@ import sys
 import time
 from datetime import datetime, timedelta
 
+def wifi_iface():
+    """The Wi-Fi interface carrying the default route (the USB stick when it is up, else the built-in radio)."""
+    try:
+        out = subprocess.run(["ip", "-4", "route", "show", "default"], capture_output=True, text=True, timeout=5).stdout
+        for line in out.splitlines():
+            m = re.search(r"\bdev (wl\S+)", line)
+            if m:
+                return m.group(1)
+    except Exception:
+        pass
+    return "wlan0"
+
+
 SYNC_SCRIPT = os.environ.get("TESLACAM_SYNC_SCRIPT", "/usr/local/bin/teslacam-sync.sh")
 CREDS = os.environ.get("TESLACAM_CREDS", "/root/.teslacam-smb")
 PORT = int(os.environ.get("TESLACAM_SMB_PORT", "445"))      # override only for testing
@@ -161,7 +174,7 @@ def pi_facts():
     for p in glob.glob("/sys/class/udc/*/state"):
         facts["car_usb"] = read(p) or None
     try:
-        out = subprocess.run(["iw", "dev", "wlan0", "link"], capture_output=True, text=True, timeout=5).stdout
+        out = subprocess.run(["iw", "dev", wifi_iface(), "link"], capture_output=True, text=True, timeout=5).stdout
         m = re.search(r"signal:\s*(-?\d+)", out)
         facts["wifi_dbm"] = int(m.group(1)) if m else None
         m = re.search(r"SSID:\s*(.+)", out)

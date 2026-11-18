@@ -37,7 +37,7 @@ STATE = "/var/lib/teslacam/diag-state.json"
 CLEAN_MARK = "/var/lib/teslacam/clean-shutdown"
 LOCK = "/run/teslacam-diag.lock"
 SYNC_SCRIPT = "/usr/local/bin/teslacam-sync.sh"
-IFACE = "wlan0"
+IFACE = "wlan0"                # replaced below by whichever Wi-Fi interface carries the default route
 RECOVER_AFTER_S = 180          # disconnected this long (with home Wi-Fi visible) before acting
 RECOVER_EVERY_S = 180          # wait between recovery steps
 RECOVER_BACKOFF_S = 900        # after all steps were tried, wait this long before starting over
@@ -62,6 +62,21 @@ def run(cmd, timeout=15):
     except Exception as e:
         return f"<{cmd[0]} failed: {e}>"
 
+
+
+def wifi_iface():
+    """The Wi-Fi interface carrying the default route (the USB stick when it is up, else the built-in radio)."""
+    try:
+        out = subprocess.run(["ip", "-4", "route", "show", "default"], capture_output=True, text=True, timeout=5).stdout
+        for line in out.splitlines():
+            m = re.search(r"\bdev (wl\S+)", line)
+            if m:
+                return m.group(1)
+    except Exception:
+        pass
+    return "wlan0"
+
+IFACE = wifi_iface()
 
 def read(path):
     try:
@@ -104,7 +119,7 @@ def event(title, details=""):
 
 # ------------------------------------------------------------------ measurements
 def wifi_status():
-    w = {"connected": False}
+    w = {"connected": False, "iface": IFACE}
     link = run(["iw", "dev", IFACE, "link"])
     if link.startswith("Connected"):
         w["connected"] = True
@@ -220,8 +235,8 @@ def recover(step, home_conn):
         ("reconnect", [["nmcli", "connection", "up", "id", home_conn]] if home_conn
                       else [["nmcli", "device", "connect", IFACE]]),
         ("Wi-Fi off/on", [["nmcli", "radio", "wifi", "off"], ["sleep", "3"], ["nmcli", "radio", "wifi", "on"]]),
-        ("reload Wi-Fi driver", [["bash", "-c", "modprobe -r brcmfmac_wcc brcmfmac_cyw brcmfmac 2>/dev/null; "
-                                                "sleep 3; modprobe brcmfmac"]]),
+        ("reload Wi-Fi driver", [["bash", "-c", "modprobe -r mt7921u 2>/dev/null; modprobe -r brcmfmac_wcc brcmfmac_cyw brcmfmac 2>/dev/null; "
+                                                "sleep 3; modprobe brcmfmac; modprobe mt7921u 2>/dev/null"]]),
         ("restart NetworkManager", [["systemctl", "restart", "NetworkManager"]]),
     ]
     name, cmds = steps[step % len(steps)]
@@ -431,7 +446,7 @@ def bundle():
         "services.txt": ["bash", "-c", "systemctl list-timers 'teslacam*' --no-pager; "
                                        "systemctl status 'teslacam*' --no-pager -n 5"],
         "network.txt": ["bash", "-c", "nmcli general; nmcli device status; nmcli -f NAME,TYPE,AUTOCONNECT,DEVICE "
-                                      "connection show; iw dev wlan0 link; iw dev wlan0 get power_save; ip addr; "
+                                      "connection show; iw dev; ip addr; "
                                       "ip route; rfkill list; cat /etc/NetworkManager/conf.d/*.conf"],
         "journal-this-boot.txt": ["journalctl", "-b", "0", "--no-pager", "-o", "short-iso", "-n", "4000"],
         "journal-previous-boot.txt": ["journalctl", "-b", "-1", "--no-pager", "-o", "short-iso", "-n", "4000"],
