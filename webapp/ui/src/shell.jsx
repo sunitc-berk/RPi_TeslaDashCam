@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FluentProvider, Text, Breadcrumb, BreadcrumbItem, BreadcrumbButton, BreadcrumbDivider, SearchBox, PresenceBadge, Toaster, Toast, ToastTitle, useToastController, useId, Link, Button, OverlayDrawer, DrawerHeader, DrawerHeaderTitle, DrawerBody } from "@fluentui/react-components";
-import { Video24Regular, Video24Filled, Pin24Regular, Pin24Filled, ArrowUpload24Regular, ArrowUpload24Filled, DeveloperBoard24Regular, DeveloperBoard24Filled, Database24Regular, Database24Filled, Settings24Regular, Settings24Filled, VehicleCar24Regular, CalendarLtr24Regular, Search24Regular, Dismiss24Regular, ArrowLeft24Regular } from "@fluentui/react-icons";
+import { Video24Regular, Video24Filled, Pin24Regular, Pin24Filled, ArrowUpload24Regular, ArrowUpload24Filled, DeveloperBoard24Regular, DeveloperBoard24Filled, Database24Regular, Database24Filled, Settings24Regular, Settings24Filled, VehicleCar24Regular, VehicleCar24Filled, CalendarLtr24Regular, Search24Regular, Dismiss24Regular, ArrowLeft24Regular } from "@fluentui/react-icons";
 import { ROUTE, LIVE, THEME, BUS, useStore, go, hrefOf, pillState, pollLive, pollDiag, startRouter } from "./lib.js";
 import { useFluentTheme, T } from "./theme.js";
 import { DESIGN } from "./designs.js";
@@ -12,12 +12,14 @@ import { Uploads } from "./uploads.jsx";
 import { Pi } from "./pi.jsx";
 import { Storage } from "./storage.jsx";
 import { Settings } from "./settings.jsx";
+import { Plates } from "./plates.jsx";
 
-const PAGES = { drives: Footage, kept: Footage, player: Player, status: Uploads, health: Pi, storage: Storage, system: Settings };
-const TITLES = { drives: "Footage", kept: "Kept", player: "Player", status: "Uploads", health: "Pi", storage: "Storage", system: "Settings" };
+const PAGES = { drives: Footage, kept: Footage, player: Player, status: Uploads, health: Pi, storage: Storage, system: Settings, plates: Plates };
+const TITLES = { drives: "Footage", kept: "Kept", player: "Player", status: "Uploads", health: "Pi", storage: "Storage", system: "Settings", plates: "Plates" };
 const RAIL = [["footage", "Footage", "drives", Video24Regular, Video24Filled], ["kept", "Kept", "kept", Pin24Regular, Pin24Filled], ["uploads", "Uploads", "status", ArrowUpload24Regular, ArrowUpload24Filled],
-  ["pi", "Pi", "health", DeveloperBoard24Regular, DeveloperBoard24Filled], ["storage", "Storage", "storage", Database24Regular, Database24Filled]];
-const RAIL_OF = { drives: "footage", kept: "kept", player: "footage", status: "uploads", health: "pi", storage: "storage", system: "settings" };
+  ["pi", "Pi", "health", DeveloperBoard24Regular, DeveloperBoard24Filled], ["storage", "Storage", "storage", Database24Regular, Database24Filled],
+  ["plates", "Plates", "plates", VehicleCar24Regular, VehicleCar24Filled]];
+const RAIL_OF = { drives: "footage", kept: "kept", player: "footage", status: "uploads", health: "pi", storage: "storage", system: "settings", plates: "plates" };
 
 export const Shell = createContext(null);
 export const useShell = () => useContext(Shell);

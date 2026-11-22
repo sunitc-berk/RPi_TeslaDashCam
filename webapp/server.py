@@ -371,6 +371,111 @@ def media(path: str):
     return FileResponse(full)                     # supports Range requests (seeking)
 
 
+# ------------------------------------------------------------------ plate analysis (the GPU machine writes its run into analysis/bench on this share)
+ANALYSIS: Path = Path(SETTINGS.get("analysis_root") or (ROOT / "analysis" / "bench")).resolve()
+_PLATE_FORMATS = [r"^\d{2}[A-Z]\d{3}$", r"^\d{3}[A-Z]\d{2}$", r"^\d{3}[A-Z]{3}$", r"^[A-Z]{3}\d{3}$", r"^\d{2}[A-Z]{2}\d{3}$",
+                  r"^\d[A-Z]{3}\d{3}$", r"^[A-Z]{3}\d{4}$", r"^\d{3}[A-Z]{4}$", r"^[A-Z]\d{5}$", r"^[A-Z]\d{2}[A-Z]{2}\d$"]
+
+
+def _adb():
+    """read-only connection to the benchmark database; the GPU machine is the only writer"""
+    p = ANALYSIS / "bench.sqlite"
+    if not p.is_file():
+        return None
+    con = sqlite3.connect(f"file:{p.as_posix()}?mode=ro", uri=True, timeout=2)
+    con.row_factory = sqlite3.Row
+    return con
+
+
+def _arows(con, sql, args=()):
+    try:
+        return [dict(r) for r in con.execute(sql, args).fetchall()]
+    except sqlite3.OperationalError:
+        return []
+
+
+@app.get("/api/plates/status")
+def plates_status():
+    out = {"available": False, "root": str(ANALYSIS)}
+    pj = ANALYSIS / "progress.json"
+    if pj.is_file():
+        try:
+            prog = json.loads(pj.read_text())
+            prog["age_s"] = round(time.time() - pj.stat().st_mtime)
+            out["progress"] = prog
+            out["available"] = True
+        except (OSError, ValueError):
+            pass
+    con = _adb()
+    if con is None:
+        return out
+    try:
+        out["available"] = True
+        c = _arows(con, "SELECT status, COUNT(*) n, SUM(frames) frames FROM clips GROUP BY status")
+        out["clips"] = {r["status"]: r["n"] for r in c}
+        out["frames"] = sum(r["frames"] or 0 for r in c)
+        out["by_camera"] = _arows(con, """SELECT camera, bucket, COUNT(*) clips, SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) done,
+                                          SUM(n_vehicles_m) vehicles FROM clips GROUP BY camera, bucket ORDER BY camera, bucket""")
+        t = _arows(con, "SELECT COUNT(*) n, SUM(CASE WHEN best_crop IS NOT NULL THEN 1 ELSE 0 END) with_plate FROM tracks")
+        out["tracks"] = t[0] if t else {}
+        out["plate_boxes"] = (_arows(con, "SELECT COUNT(DISTINCT track_id||'/'||frame_sec) n FROM plates WHERE detector='alpr_v9t' AND det_conf>=0.5") or [{"n": 0}])[0]["n"]
+        out["reads"] = _arows(con, """SELECT reader, COUNT(*) n FROM plates WHERE detector='alpr_v9t' AND det_conf>=0.5 AND prep='pad_up'
+                                       AND conf>=0.7 AND LENGTH(text)>=5 GROUP BY reader""")
+        out["vlm"] = _arows(con, """SELECT model, COUNT(*) asked, SUM(CASE WHEN text NOT IN ('?','ERR','') THEN 1 ELSE 0 END) answered,
+                                     ROUND(AVG(seconds),1) avg_s FROM vlm GROUP BY model""")
+        ex = _arows(con, "SELECT value FROM experiments WHERE name='sample' AND key='summary'")
+        if ex:
+            try: out["sample"] = json.loads(ex[0]["value"])
+            except ValueError: pass
+        out["errors"] = _arows(con, "SELECT name, err FROM clips WHERE status='error' ORDER BY id DESC LIMIT 5")
+    finally:
+        con.close()
+    return out
+
+
+def _vote(rows):
+    """the read most frames agreed on, weighted by confidence"""
+    score: dict = {}
+    for r in rows:
+        if r["text"] and len(r["text"]) >= 5:
+            score[r["text"]] = score.get(r["text"], 0) + (r["conf"] or 0)
+    if not score:
+        return None
+    best = max(score, key=score.get)
+    return {"text": best, "score": round(score[best], 2), "format_ok": any(re.match(p, best) for p in _PLATE_FORMATS)}
+
+
+@app.get("/api/plates/recent")
+def plates_recent(limit: int = 48, offset: int = 0):
+    con = _adb()
+    if con is None:
+        return {"items": []}
+    try:
+        tracks = _arows(con, """SELECT t.id, t.best_crop, t.best_context, t.best_plate_w, t.best_det_conf, t.n_frames, t.max_w, t.first_sec,
+                                       c.name clip, c.camera, c.bucket, c.date, c.hour
+                                FROM tracks t JOIN clips c ON c.id=t.clip_id WHERE t.best_crop IS NOT NULL
+                                ORDER BY t.id DESC LIMIT ? OFFSET ?""", (limit, offset))
+        for t in tracks:
+            reads = _arows(con, "SELECT reader, text, conf FROM plates WHERE track_id=? AND detector='alpr_v9t' AND prep='pad_up' AND det_conf>=0.5", (t["id"],))
+            by = {}
+            for r in reads:
+                by.setdefault(r["reader"], []).append(r)
+            t["fast"] = {k: _vote(v) for k, v in by.items()}
+            t["vlm"] = {r["model"]: r["text"] for r in _arows(con, "SELECT model, text FROM vlm WHERE track_id=?", (t["id"],))}
+            t["frames_read"] = len({r["conf"] for r in reads if r["conf"] and r["conf"] >= 0.7})
+        return {"items": tracks}
+    finally:
+        con.close()
+
+
+@app.get("/plates-media/{name}")
+def plates_media(name: str):
+    full = (ANALYSIS / "crops" / name).resolve()
+    if (ANALYSIS / "crops").resolve() not in full.parents or not full.is_file():
+        raise HTTPException(404)
+    return FileResponse(full, headers={"Cache-Control": "public, max-age=86400"})
+
+
 # ------------------------------------------------------------------ Pi health
 @app.get("/api/metrics")
 def metrics(hours: int = 48):

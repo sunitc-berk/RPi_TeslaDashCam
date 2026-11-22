@@ -220,7 +220,7 @@ export function useStill(path) {                            // -> {ref, url}; ur
 // ---------------------------------------------------------------- the router (hash based, as before: #/drives?month=2026-11)
 export const ROUTE = makeStore({ name: "drives", params: new URLSearchParams(), prev: null });
 const OLD_PAGES = { overview: {}, search: {}, favorites: { show: "kept" }, map: { view: "map" } };
-export const PAGE_NAMES = ["drives", "kept", "player", "status", "health", "storage", "system"];
+export const PAGE_NAMES = ["drives", "kept", "player", "status", "health", "storage", "system", "plates"];
 function parseHash() {
   const h = location.hash.replace(/^#\/?/, ""), [name, q] = h.split("?");
   return { name: name || "drives", params: new URLSearchParams(q || "") };
