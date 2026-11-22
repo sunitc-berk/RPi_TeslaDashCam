@@ -838,6 +838,20 @@ def plates_charts(run: str = ""):
     return out
 
 
+@app.get("/api/plates/live")
+def plates_live(run: str = ""):
+    """the GPU machine's latest second-by-second sample (live.json, rewritten every second by the run's telemetry thread)"""
+    run = run or _latest_run()
+    d = _run_dir(run)
+    p = d / "live.json"
+    if not p.is_file():
+        return {"run": run, "sample": None}
+    try:
+        return {"run": run, "sample": json.loads(p.read_text()), "age_s": round(time.time() - p.stat().st_mtime, 1)}
+    except (OSError, ValueError):
+        return {"run": run, "sample": None}
+
+
 @app.get("/api/plates/telemetry")
 def plates_telemetry(run: str = "", points: int = 240):
     run = run or _latest_run()

@@ -96,9 +96,18 @@ function Overview({ st, run, runInfo, runs, C, phone }) {
     a(); const i = setInterval(() => { if (!document.hidden && runInfo?.live) a(); }, 60000);
     return () => clearInterval(i);
   }, [run, runInfo?.live, phone]);
-  const prog = st.progress, stage = prog?.stages?.[prog.current], sys = prog?.system;
+  const prog = st.progress, stage = prog?.stages?.[prog.current];
   const allDone = prog && Object.values(prog.stages || {}).every(s => s.done >= s.total);
   const running = prog && prog.age_s < 180 && !allDone, finished = prog && allDone;
+  // the gauges follow live.json, which the run's telemetry thread rewrites every second; the rest of the page every 5 s
+  const [live, setLive] = useState(null);
+  useEffect(() => {
+    if (!running) { setLive(null); return; }
+    const a = () => { if (!document.hidden) api(`/api/plates/live?run=${encodeURIComponent(run)}`).then(r => setLive(r.sample && r.age_s < 30 ? r.sample : null)).catch(() => {}); };
+    a(); const i = setInterval(a, 1000);
+    return () => clearInterval(i);
+  }, [run, running]);
+  const sys = live || prog?.system;
   const pct = runInfo?.pct ?? (stage ? Math.min(100, 100 * stage.done / Math.max(1, stage.total)) : 0);
   const clipsDone = st.clips?.done || 0, clipsAll = Object.values(st.clips || {}).reduce((a, b) => a + b, 0);
   const vlmAsked = (st.vlm || []).reduce((a, m) => a + m.asked, 0), vlmAns = (st.vlm || []).reduce((a, m) => a + m.answered, 0);
@@ -127,7 +136,7 @@ function Overview({ st, run, runInfo, runs, C, phone }) {
     ["RAM", sys.ram_total_gb ? 100 * sys.ram_used_gb / sys.ram_total_gb : 0, `${Math.round(sys.ram_total_gb ? 100 * sys.ram_used_gb / sys.ram_total_gb : 0)}%`, zone(sys.ram_total_gb ? 100 * sys.ram_used_gb / sys.ram_total_gb : 0, 75, 90), sys.ram_total_gb ? `${Math.round(sys.ram_used_gb)} / ${Math.round(sys.ram_total_gb)} GB` : ""],
     ["GPU °C", sys.gpu_temp_c != null ? sys.gpu_temp_c / 90 * 100 : 0, sys.gpu_temp_c != null ? `${Math.round(sys.gpu_temp_c)}°` : "–", zone(sys.gpu_temp_c ?? 0, 75, 84), "of 90° max"],
   ] : [];
-  const gauges = sys && <div style={{ display: "flex", gap: phone ? 10 : 14, flexWrap: "wrap", justifyContent: phone ? "space-between" : "flex-end" }}>
+  const gauges = sys && <div title={live ? "updated every second" : "from the last progress update"} style={{ display: "flex", gap: phone ? 10 : 14, flexWrap: "wrap", justifyContent: phone ? "space-between" : "flex-end" }}>
     {g.map(([l, p, txt, z, subt]) => <div key={l} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}><Ring pct={p} color={ZONE[z]} size={phone ? 64 : 80} stroke={phone ? 6 : 8} label={txt} sub={l} />{!phone && <Text size={100} style={faint}>{subt}</Text>}</div>)}
   </div>;
 
@@ -160,7 +169,7 @@ function Overview({ st, run, runInfo, runs, C, phone }) {
   // the machine over the run: six smoothed areas, current value beside each
   const rows = tele?.rows || [], tl = rows.length ? [(rows[0].time || "").slice(11, 16), "now"] : null;
   const ser = k => rows.map(r => r[k]);
-  const lastOf = k => { const v = ser(k).filter(x => x != null); return v.length ? v[v.length - 1] : null; };
+  const lastOf = k => { if (live && live[k] != null) return live[k]; const v = ser(k).filter(x => x != null); return v.length ? v[v.length - 1] : null; };
   const teleCard = rows.length > 2 && <Card style={{ padding: "16px 20px", gap: 12 }}>
     <div><Text size={400} weight="semibold" block>The machine, over the run</Text><Text size={200} style={faint}>{tele.samples.toLocaleString()} samples · one point every {tele.every_s >= 60 ? `${Math.round(tele.every_s / 60)} min` : `${tele.every_s} s`} · smoothed</Text></div>
     <div style={{ display: "grid", gridTemplateColumns: phone ? "1fr" : "repeat(3, 1fr)", gap: "14px 26px" }}>
