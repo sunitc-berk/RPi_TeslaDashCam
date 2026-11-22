@@ -11,7 +11,7 @@ an ordinary program: it always times out, and it can always be killed.
       Each file is written as ".<name>.part" and renamed only when complete, so the PC never
       sees half-written footage. Stops cleanly when the PC becomes unreachable.
       Exit 0 = everything uploaded, 3 = PC unreachable / partial, 1 = other error.
-      Several batches upload at once (TESLACAM_PARALLEL, default 2): each smbclient connection
+      Several batches upload at once (TESLACAM_PARALLEL, default 3): each smbclient connection
       runs on its own CPU core, which is where a Pi 4 runs out of speed (Windows signs every
       SMB packet and the Pi 4 has no hardware help for that).
 
@@ -35,28 +35,14 @@ import sys
 import time
 from datetime import datetime, timedelta
 
-def wifi_iface():
-    """The Wi-Fi interface carrying the default route (the USB stick when it is up, else the built-in radio)."""
-    try:
-        out = subprocess.run(["ip", "-4", "route", "show", "default"], capture_output=True, text=True, timeout=5).stdout
-        for line in out.splitlines():
-            m = re.search(r"\bdev (wl\S+)", line)
-            if m:
-                return m.group(1)
-    except Exception:
-        pass
-    return "wlan0"
-
-
 SYNC_SCRIPT = os.environ.get("TESLACAM_SYNC_SCRIPT", "/usr/local/bin/teslacam-sync.sh")
 CREDS = os.environ.get("TESLACAM_CREDS", "/root/.teslacam-smb")
 PORT = int(os.environ.get("TESLACAM_SMB_PORT", "445"))      # override only for testing
 BATCH_FILES = int(os.environ.get("TESLACAM_BATCH", "30"))   # files per smbclient session
 MIN_RATE = 0.5e6                 # assume at least 0.5 MB/s when sizing each batch's time limit
 BATCH_BYTES = int(os.environ.get("TESLACAM_BATCH_BYTES", str(400_000_000)))  # ~10 clips per batch
-SMB_TIMEOUT = int(os.environ.get("TESLACAM_SMB_TIMEOUT", "180"))  # smbclient per-operation timeout (s): a 77 MB clip at 0.5 MB/s
-PARALLEL = max(1, int(os.environ.get("TESLACAM_PARALLEL", "2")))  # uploads running at the same time
-SLOW_RATE = 4e6                  # below this (bytes/s for the whole run) only one upload runs at a time, so each file finishes
+SMB_TIMEOUT = int(os.environ.get("TESLACAM_SMB_TIMEOUT", "30"))  # smbclient per-operation timeout (s)
+PARALLEL = max(1, int(os.environ.get("TESLACAM_PARALLEL", "3")))  # uploads running at the same time
 LS_LINE = re.compile(r"^\s{2}(.+?)\s+[ADHNRSI]*\s+(\d+)\s+\w{3} \w{3}\s+\d+ [\d:]+ \d{4}$")
 DATE = re.compile(r"^(\d{4}-\d{2}-\d{2})_")
 STATE_DIR = os.environ.get("TESLACAM_STATE_DIR", "/var/lib/teslacam")
@@ -65,9 +51,11 @@ LIVE_DIR = "PiMetrics/live"
 
 
 def config():
+    """the PC's address: what teslacam-sync.sh found (by name, last known or configured), else the configured one"""
     text = open(SYNC_SCRIPT).read() if os.path.exists(SYNC_SCRIPT) else ""
     get = lambda k, d: (re.search(rf'^{k}="([^"]*)"', text, re.M) or [None, d])[1]
-    return get("PC_HOST", "192.168.68.71"), get("SHARE_NAME", "TeslaCam")
+    host = os.environ.get("TESLACAM_PC_ADDR") or get("PC_HOST", "192.168.68.59")
+    return host, get("SHARE_NAME", "TeslaCam")
 
 
 def reachable(host, timeout=3):
@@ -83,9 +71,6 @@ NETWORK_ERRORS = ("NT_STATUS_IO_TIMEOUT", "NT_STATUS_CONNECTION_", "NT_STATUS_NE
                   "timed out", "Protocol negotiation", "session setup failed", "tree connect failed",
                   "NT_STATUS_LOGON_FAILURE", "NT_STATUS_ACCESS_DENIED", "NT_STATUS_BAD_NETWORK_NAME",
                   "Connection reset", "Broken pipe")
-
-
-FATAL_ERRORS = tuple(k for k in NETWORK_ERRORS if k not in ("NT_STATUS_IO_TIMEOUT", "timed out"))
 
 
 def smb(host, share, commands, limit):
@@ -174,7 +159,7 @@ def pi_facts():
     for p in glob.glob("/sys/class/udc/*/state"):
         facts["car_usb"] = read(p) or None
     try:
-        out = subprocess.run(["iw", "dev", wifi_iface(), "link"], capture_output=True, text=True, timeout=5).stdout
+        out = subprocess.run(["iw", "dev", "wlan0", "link"], capture_output=True, text=True, timeout=5).stdout
         m = re.search(r"signal:\s*(-?\d+)", out)
         facts["wifi_dbm"] = int(m.group(1)) if m else None
         m = re.search(r"SSID:\s*(.+)", out)
@@ -183,15 +168,6 @@ def pi_facts():
                                                capture_output=True, text=True, timeout=5).stdout.strip() == "yes"
     except (OSError, subprocess.SubprocessError):
         pass
-    # about this Pi, for the dashboard's Pi page: the software (written by install.sh), the board, the OS
-    try:
-        facts["software"] = json.load(open("/etc/teslacam/installed.json"))
-    except (OSError, ValueError):
-        facts["software"] = None
-    facts["model"] = read("/proc/device-tree/model").replace("\x00", "") or None
-    m = re.search(r'^PRETTY_NAME="([^"]*)"', read("/etc/os-release"), re.M)
-    facts["os"] = m.group(1) if m else None
-    facts["hostname"] = socket.gethostname()
     rn, rb = folder_totals(os.path.join(STATE_DIR, "recent-archive"))
     en, eb = folder_totals(os.path.join(STATE_DIR, "event-outbox"))
     facts["waiting"] = {"recent_files": rn, "recent_bytes": rb, "event_files": en, "event_bytes": eb}
@@ -296,17 +272,13 @@ def upload(args):
     # 2. batches upload in parallel; each one is verified on the PC before it counts
     lock = threading.Lock()
     stop = threading.Event()
-    state = {"failures": 0, "started": -1, "reason": "", "slow": False}
+    state = {"failures": 0, "started": -1, "reason": ""}
     queue = list(enumerate(batches))
-    retried = set()
 
-    def worker(idx):
+    def worker():
         nonlocal done_files, done_bytes
         while not stop.is_set():
             with lock:
-                # on a slow link the extra connections stand down, so the one that is left gets the whole link
-                if idx > 0 and state["slow"]:
-                    return
                 if not queue:
                     return
                 k, batch = queue.pop(0)
@@ -343,31 +315,19 @@ def upload(args):
                     os.fsync(f.fileno())
                 done_files += len(verified)
                 done_bytes += sum(s for _, s in verified)
-                rate = done_bytes / max(1.0, time.time() - t0)
-                if done_bytes > 50_000_000 and rate < SLOW_RATE and not state["slow"]:
-                    state["slow"] = True
-                    print(f"\nSlow link ({rate / 1e6:.1f} MB/s) - continuing one file at a time", flush=True)
                 if len(verified) < len(batch):
                     state["failures"] += 1
                     err = " | ".join(l for l in out.splitlines() if "NT_STATUS" in l or "ERR" in l.upper())[-400:]
                     print(f"\nBatch incomplete: {len(verified)}/{len(batch)} confirmed on the PC. {err}", flush=True)
-                    fatal = any(k in out for k in FATAL_ERRORS)
-                    if fatal or state["failures"] >= 5 or not reachable(host):
+                    network_trouble = (not verified or any(k in out for k in NETWORK_ERRORS + ("did not finish in time",)))
+                    if network_trouble or state["failures"] >= 3 or not reachable(host):
                         state["reason"] = "network"
                         stop.set()
-                    elif k not in retried:
-                        # a timeout or a half-done batch on a slow link: the missing files get one more try, at the end
-                        retried.add(k)
-                        left = [(rel, size) for rel, size in batch if (rel, size) not in verified]
-                        queue.append((k, left))
-                        if not state["slow"]:
-                            state["slow"] = True
-                            print("\nSlow link - continuing one file at a time", flush=True)
                 else:
                     state["failures"] = 0
 
     with ThreadPoolExecutor(max_workers=min(PARALLEL, len(batches)) or 1) as pool:
-        futures = [pool.submit(worker, i) for i in range(min(PARALLEL, len(batches)) or 1)]
+        futures = [pool.submit(worker) for _ in range(min(PARALLEL, len(batches)) or 1)]
         last_push = 0
         while not all(f.done() for f in futures):
             time.sleep(0.5)

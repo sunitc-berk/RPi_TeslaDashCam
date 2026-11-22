@@ -23,7 +23,8 @@ set -u
 # ---------------- settings (edit these) ----------------
 # (PC_HOST, SHARE_NAME and CREDS are also read from this file by teslacam-upload.py)
 # shellcheck disable=SC2034  # these three are read by teslacam-upload.py
-PC_HOST="192.168.68.71"            # your PC's IP address (reserve it in your router)
+PC_NAME="sunitooptiplex7"          # your PC's Windows name: found on the network by name first (<name>.local)
+PC_HOST="192.168.68.59"            # its IP address, used only if the name cannot be found (reserve it in your router)
 SHARE_NAME="TeslaCam"              # Windows share name
 CREDS="/root/.teslacam-smb"        # file holding the share's username/password
 FOLDERS="SavedClips SentryClips"   # event folders taken from the car drive
@@ -84,7 +85,35 @@ trap cleanup EXIT
 trap 'exit 1' INT TERM HUP                           # run cleanup on stop/kill signals too
 
 # ---------------------------------------------------------------- helpers
-pc_up() { timeout 3 bash -c "</dev/tcp/${PC_HOST}/445" 2>/dev/null; }
+# Where is the PC?  By name first (mDNS <name>.local, then the plain name), then the address that worked last time,
+# then the configured address.  The answer is remembered, exported for teslacam-upload.py, and logged when it changes
+# or when the PC cannot be found at all (once per change, not every 2 minutes).
+PC_ADDR=""
+port_open() { timeout 3 bash -c "</dev/tcp/$1/445" 2>/dev/null; }
+find_pc() {
+    local cand how addr last="" prev_state=""
+    [ -r "$STATE_DIR/pc-address" ] && last=$(head -n1 "$STATE_DIR/pc-address" 2>/dev/null)
+    [ -r "$STATE_DIR/pc-state" ] && prev_state=$(cat "$STATE_DIR/pc-state" 2>/dev/null)
+    for cand in "${PC_NAME}.local|by name" "${PC_NAME}|by name" "${last}|last known" "${PC_HOST}|configured"; do
+        how=${cand#*|}; cand=${cand%%|*}
+        [ -n "$cand" ] || continue
+        addr=$(getent ahostsv4 "$cand" 2>/dev/null | awk 'NR==1{print $1}')
+        [ -n "$addr" ] || continue
+        if port_open "$addr"; then
+            PC_ADDR=$addr; export TESLACAM_PC_ADDR=$addr
+            if [ "$addr" != "$last" ] || [ "$prev_state" != "up" ]; then
+                log "PC found at $addr ($how)"; echo "$addr" > "$STATE_DIR/pc-address"; echo up > "$STATE_DIR/pc-state"
+            fi
+            return 0
+        fi
+    done
+    if [ "$prev_state" != "down" ]; then
+        log "PC not reachable - tried ${PC_NAME}.local, ${PC_NAME}${last:+, last known $last}, configured ${PC_HOST}; will keep trying every 2 minutes"
+        echo down > "$STATE_DIR/pc-state"
+    fi
+    return 1
+}
+pc_up() { [ -n "$PC_ADDR" ] && port_open "$PC_ADDR"; }
 
 json_bool() { [ "$1" = 1 ] && echo true || echo false; }
 
@@ -234,7 +263,7 @@ stage_events() {
 }
 
 # ---------------------------------------------------------------- 2. + 3.
-pc_up || exit 0                         # not home (or PC off) - nothing to do
+find_pc || exit 0                       # not home (or PC off) - nothing to do; the log says which when that changes
 
 status idle
 stage_events
