@@ -15,10 +15,10 @@ import { Settings } from "./settings.jsx";
 import { Plates } from "./plates.jsx";
 
 const PAGES = { drives: Footage, kept: Footage, player: Player, status: Uploads, health: Pi, storage: Storage, system: Settings, plates: Plates };
-const TITLES = { drives: "Footage", kept: "Kept", player: "Player", status: "Uploads", health: "Pi", storage: "Storage", system: "Settings", plates: "Spotter" };
+const TITLES = { drives: "Footage", kept: "Kept", player: "Player", status: "Uploads", health: "Pi", storage: "Storage", system: "Settings", plates: "Plates" };
 const RAIL = [["footage", "Footage", "drives", Video24Regular, Video24Filled], ["kept", "Kept", "kept", Pin24Regular, Pin24Filled], ["uploads", "Uploads", "status", ArrowUpload24Regular, ArrowUpload24Filled],
   ["pi", "Pi", "health", DeveloperBoard24Regular, DeveloperBoard24Filled], ["storage", "Storage", "storage", Database24Regular, Database24Filled],
-  ["plates", "Spotter", "plates", VehicleCar24Regular, VehicleCar24Filled]];
+  ["plates", "Plates", "plates", VehicleCar24Regular, VehicleCar24Filled]];
 const RAIL_OF = { drives: "footage", kept: "kept", player: "footage", status: "uploads", health: "pi", storage: "storage", system: "settings", plates: "plates" };
 
 export const Shell = createContext(null);
@@ -71,11 +71,11 @@ function Rail({ on }) {
   const status = p.kind === "up" ? "busy" : p.kind === "ok" ? "available" : p.kind === "wait" ? "away" : "offline";
   return <nav aria-label="Main" className="rail" style={{ flex: "0 0 92px", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 0", background: T.colorNeutralBackground3, borderRight: `1px solid ${T.colorNeutralStroke2}`, overflow: "hidden" }}>
     <a href="#/drives" aria-label="TeslaCam" style={{ width: 44, height: 44, marginBottom: 10, borderRadius: T.borderRadiusLarge, background: T.colorBrandBackground, display: "grid", placeItems: "center", color: T.colorNeutralForegroundOnBrand }}><VehicleCar24Regular /></a>
-    {RAIL.map(([k, l, page, R, F]) => <RailItem key={k} on={k === on} label={l} R={R} F={F} href={`#/${page}`} ring={k === "plates" && spot.live ? spot : null} title={k === "plates" && spot.live ? `${l} · run ${Math.floor(spot.pct)}% done` : undefined} />)}
+    {RAIL.map(([k, l, page, R, F]) => { const ring = k === "plates" && spot.live ? spot : k === "uploads" && p.kind === "up" ? { pct: p.pct } : null;
+      return <RailItem key={k} on={k === on} label={l} R={R} F={F} href={`#/${page}`} ring={ring} title={ring ? `${l} · ${Math.floor(ring.pct)}%` : undefined} />; })}
     <a href="#/status" title={p.title} className="rail-state" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, height: 56, marginTop: 8, justifyContent: "center", textDecoration: "none" }}>
       <PresenceBadge status={status} size="small" />
-      {p.kind === "up" ? <span style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.15 }}><Text size={300} weight="semibold" style={{ color: T.colorBrandForeground1 }}>{Math.floor(p.pct)}%</Text><Text size={200} style={{ color: T.colorNeutralForeground2 }}>Uploading</Text></span>
-        : <Text size={200} style={{ color: T.colorNeutralForeground2, whiteSpace: "nowrap" }}>{p.text}</Text>}</a>
+      <Text size={200} style={{ color: T.colorNeutralForeground2, whiteSpace: "nowrap" }}>{p.kind === "up" ? "Uploading" : p.text}</Text></a>
     <span style={{ flex: 1 }} />
     <RailItem on={on === "settings"} label="Settings" R={Settings24Regular} F={Settings24Filled} href="#/system" />
   </nav>;
@@ -122,11 +122,11 @@ function PhoneBar({ crumb, topEl, q, onSearch, hasPanel, onSheet }) {
 function PhoneTabs({ on }) {
   const live = useStore(LIVE), p = pillState(live), up = p.kind === "up", spot = useSpotter();
   return <nav aria-label="Main" className="ptabs" style={{ flex: "none", display: "flex", background: T.colorNeutralBackground1, borderTop: `1px solid ${T.colorNeutralStroke2}`, paddingBottom: "env(safe-area-inset-bottom)" }}>
-    {RAIL.map(([k, l, page, R, F]) => { const sel = k === on, busy = k === "uploads" && up, spotting = k === "plates" && spot.live; return <a key={k} href={`#/${page}`} className="ptab" aria-current={sel ? "page" : undefined} aria-label={busy ? `${l}, ${Math.floor(p.pct)} percent` : spotting ? `${l}, run ${Math.floor(spot.pct)} percent done` : l}
+    {RAIL.map(([k, l, page, R, F]) => { const sel = k === on, pct = k === "uploads" && up ? p.pct : k === "plates" && spot.live ? spot.pct : null; return <a key={k} href={`#/${page}`} className="ptab" aria-current={sel ? "page" : undefined} aria-label={pct != null ? `${l}, ${Math.floor(pct)} percent` : l}
       style={{ flex: 1, height: 60, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, textDecoration: "none", color: sel ? T.colorBrandForeground1 : T.colorNeutralForeground3 }}>
-      <span style={{ position: "relative", display: "grid", placeItems: "center", width: 44, height: 26, borderRadius: 13, background: sel ? T.colorNeutralBackground3 : "transparent" }}>{spotting && <SpotRing pct={spot.pct} size={30} stroke={2.5} />}{sel ? <F /> : <R />}
-        {busy && <PresenceBadge status="busy" size="extra-small" style={{ position: "absolute", top: 1, right: 6 }} />}{spotting && <SpotPct pct={spot.pct} style={{ right: -12, top: -8 }} />}</span>
-      <Text size={200} weight={sel ? "semibold" : "regular"} style={{ color: "inherit", fontVariantNumeric: "tabular-nums" }}>{busy ? `${Math.floor(p.pct)}%` : l}</Text></a>; })}
+      <span style={{ position: "relative", display: "grid", placeItems: "center", width: 44, height: 26, borderRadius: 13, background: sel ? T.colorNeutralBackground3 : "transparent" }}>{pct != null && <SpotRing pct={pct} size={30} stroke={2.5} />}{sel ? <F /> : <R />}
+        {pct != null && <SpotPct pct={pct} style={{ right: -12, top: -8 }} />}</span>
+      <Text size={200} weight={sel ? "semibold" : "regular"} style={{ color: "inherit" }}>{l}</Text></a>; })}
   </nav>;
 }
 

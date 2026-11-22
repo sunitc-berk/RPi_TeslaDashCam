@@ -22,7 +22,7 @@ const Section = ({ title, sub, right, children }) => <div style={{ display: "fle
 </div>;
 
 export function Plates({ params }) {
-  useCrumb([["Spotter"]]);
+  useCrumb([["Plates"]]);
   const C0 = useColors(), sh = useShell() || {}, phone = !!sh.phone;
   const C = { ...C0, BRAND: C0.dark ? T.colorBrandForeground1 : C0.BRAND };   // the light accent is near-black in some designs: on a dark page the lines need the dark-mode brand
   const [runs, setRuns] = useState(null);
@@ -77,12 +77,21 @@ const zone = (p, warn, bad) => p >= bad ? "bad" : p >= warn ? "warn" : "ok";
 const kfmt = v => v == null ? "–" : v >= 10000 ? `${(v / 1000).toFixed(1)}k` : Math.round(v).toLocaleString();
 
 // a log-scaled bar per step, so the small end of the funnel stays visible
+// a bar with its percentage written inside the track: on the bar when the bar is long enough, just after it when not
+function PctBar({ w, pct, color, opacity = 1, height = 20 }) {
+  const onBar = w >= 30, label = pct == null ? null : `${pct < 1 && pct > 0 ? pct.toFixed(1) : Math.round(pct)}%`;
+  return <div style={{ position: "relative", height, borderRadius: height / 3, background: T.colorNeutralBackground3, overflow: "hidden" }}>
+    <div style={{ width: `${w}%`, height: "100%", borderRadius: height / 3, background: color, opacity, transition: "width .6s" }} />
+    {label && <Text size={100} weight="semibold" style={{ position: "absolute", top: 0, lineHeight: `${height}px`, ...tab, ...(onBar ? { right: `${100 - w}%`, marginRight: 7, color: "#fff" } : { left: `${w}%`, marginLeft: 7, color: T.colorNeutralForeground2 }) }}>{label}</Text>}
+  </div>;
+}
+
 function Funnel({ steps, C }) {
   const top = Math.max(10, ...steps.map(s => s.v || 0));
   return <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
     {steps.map((s, i) => <div key={s.label} style={{ display: "grid", gridTemplateColumns: "118px 1fr auto", alignItems: "center", gap: 12 }}>
       <Text size={300} style={muted}>{s.label}</Text>
-      <div style={{ height: 20, borderRadius: 6, background: T.colorNeutralBackground3, overflow: "hidden" }}><div style={{ width: `${Math.max(4, Math.log10(Math.max(1, s.v || 0)) / Math.log10(top) * 100)}%`, height: "100%", borderRadius: 6, background: s.color || C.BRAND, opacity: s.color ? 1 : 1 - 0.12 * i, transition: "width .6s" }} /></div>
+      <PctBar w={Math.max(4, Math.log10(Math.max(1, s.v || 0)) / Math.log10(top) * 100)} pct={s.pct} color={s.color || C.BRAND} opacity={s.color ? 1 : 1 - 0.12 * i} />
       <Text size={300} weight="semibold" style={{ ...tab, whiteSpace: "nowrap" }}>{kfmt(s.v)}{s.note && <Text size={200} style={faint}> {s.note}</Text>}</Text>
     </div>)}
   </div>;
@@ -158,16 +167,21 @@ function Overview({ st, run, runInfo, runs, C, phone }) {
 
   const funnel = st.available && <Card style={{ padding: "16px 20px", gap: 12 }}>
     <div><Text size={400} weight="semibold" block>From footage to plates</Text><Text size={200} style={faint}>how much survives each step</Text></div>
-    <Funnel C={C} steps={[{ label: "Clips", v: clipsDone, note: `of ${n0(clipsAll)}` }, { label: "Frames", v: st.frames, note: "sampled" }, { label: "Vehicles", v: st.tracks?.n, note: "tracked" },
-      { label: "With a plate", v: st.tracks?.with_plate, note: "box ≥ 28 px", color: C.BRAND }, { label: "Confident reads", v: reads.cct_s ?? reads.mobilevit, note: "cct · 70%+", color: C.BRAND },
-      { label: "Vision answers", v: vlmAns, note: `of ${n0(vlmAsked)} asked`, color: C.BRAND }, { label: "Labelled by you", v: st.labelled, note: "", color: C.AMBER }]} />
+    <Funnel C={C} steps={[{ label: "Clips", v: clipsDone, note: `of ${n0(clipsAll)}`, pct: clipsAll ? 100 * clipsDone / clipsAll : null },
+      { label: "Frames", v: st.frames, note: "sampled", pct: clipsDone ? Math.min(100, 100 * (st.frames || 0) / (clipsDone * 120)) : null },
+      { label: "Vehicles", v: st.tracks?.n, note: "tracked", pct: st.frames ? Math.min(100, 100 * (st.tracks?.n || 0) / st.frames) : null },
+      { label: "With a plate", v: st.tracks?.with_plate, note: "of vehicles", color: C.BRAND, pct: st.tracks?.n ? 100 * (st.tracks.with_plate || 0) / st.tracks.n : null },
+      { label: "Confident reads", v: reads.cct_s ?? reads.mobilevit, note: "of plates · cct reader", color: C.BRAND, pct: st.tracks?.with_plate ? Math.min(100, 100 * (reads.cct_s ?? reads.mobilevit ?? 0) / st.tracks.with_plate) : null },
+      { label: "Vision answers", v: vlmAns, note: `of ${n0(vlmAsked)} asked`, color: C.BRAND, pct: vlmAsked ? 100 * vlmAns / vlmAsked : null },
+      { label: "Labelled by you", v: st.labelled, note: "of plates", color: C.AMBER, pct: st.tracks?.with_plate ? 100 * (st.labelled || 0) / st.tracks.with_plate : null }]} />
+    <Text size={100} style={faint}>bar length is on a log scale so the small end stays visible · the percentage is of the step before it (frames: of the ~120 per clip; vehicles: per frame)</Text>
     {(st.vlm || []).length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}><Text size={300} weight="semibold" style={{ whiteSpace: "nowrap" }}>Vision models</Text><Text size={200} style={faint}>plates answered, and time per plate</Text></div>
       {(st.vlm || []).slice().sort((a, b) => (b.answered / Math.max(1, b.asked)) - (a.answered / Math.max(1, a.asked))).map(m => { const share = m.asked ? m.answered / m.asked : 0, sec = m.avg_s;
         const speed = sec == null ? null : sec < 1 ? ["fast", C.GREEN] : sec < 10 ? ["steady", C.AMBER] : ["slow", RED];
         return <div key={m.model} style={{ display: "grid", gridTemplateColumns: "118px 1fr auto auto", alignItems: "center", gap: 10 }}>
           <Text size={200} style={muted} truncate>{MODEL_SHORT(m.model)}</Text>
-          <div style={{ height: 10, borderRadius: 5, background: T.colorNeutralBackground3, overflow: "hidden" }}><div style={{ width: `${Math.round(share * 100)}%`, height: "100%", borderRadius: 5, background: C.BRAND, transition: "width .6s" }} /></div>
+          <PctBar w={Math.round(share * 100)} pct={share * 100} color={C.BRAND} height={16} />
           <Text size={200} style={{ ...tab, whiteSpace: "nowrap", minWidth: 86, textAlign: "right" }}><b>{n0(m.answered)}</b><span style={faint}> of {n0(m.asked)}</span></Text>
           <span title={speed ? `${sec} s per plate` : "no timing yet"} style={{ display: "inline-flex", alignItems: "center", gap: 5, minWidth: 74, justifyContent: "flex-end" }}><span style={{ width: 8, height: 8, borderRadius: 4, background: speed ? speed[1] : T.colorNeutralStroke1 }} /><Text size={200} style={{ ...tab, color: speed ? speed[1] : T.colorNeutralForeground3, whiteSpace: "nowrap" }}>{sec == null ? "–" : sec >= 10 ? `${Math.round(sec)} s` : `${sec} s`}</Text></span>
         </div>; })}

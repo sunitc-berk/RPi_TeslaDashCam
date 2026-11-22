@@ -658,8 +658,8 @@ def plates_status(run: str = ""):
         out["tracks"] = _one(con, "SELECT COUNT(*) n, SUM(CASE WHEN best_crop IS NOT NULL THEN 1 ELSE 0 END) with_plate FROM tracks", default={})
         pb = _one(con, "SELECT COUNT(*) n FROM plate_boxes") if _has_table(con, "plate_boxes") else None
         out["plate_boxes"] = pb["n"] if pb and pb["n"] else (_one(con, "SELECT COUNT(DISTINCT track_id||'/'||frame_sec) n FROM plates WHERE detector='alpr_v9t' AND det_conf>=0.5", default={"n": 0})["n"])
-        out["reads"] = _arows(con, """SELECT reader, COUNT(*) n FROM plates WHERE detector='alpr_v9t' AND det_conf>=0.5 AND prep='pad_up'
-                                       AND conf>=0.7 AND LENGTH(text)>=5 GROUP BY reader""")
+        out["reads"] = _arows(con, """SELECT reader, COUNT(DISTINCT track_id) n FROM plates WHERE detector='alpr_v9t' AND det_conf>=0.5 AND prep='pad_up'
+                                       AND conf>=0.7 AND LENGTH(text)>=5 GROUP BY reader""")   # vehicles with at least one confident read
         tok = "ROUND(AVG(tok_s),1)" if "tok_s" in _cols(con, "vlm") else "NULL"
         out["vlm"] = _arows(con, f"""SELECT model, COUNT(*) asked, SUM(CASE WHEN text NOT IN ('?','ERR','') THEN 1 ELSE 0 END) answered,
                                      ROUND(AVG(seconds),1) avg_s, {tok} tok_s FROM vlm GROUP BY model""")
