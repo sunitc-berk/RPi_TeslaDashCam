@@ -5,7 +5,7 @@ import { Text, Card, Badge, ProgressBar, Button, TabList, Tab, Dropdown, Option,
 import { api, post, fmtDur, CAM_SHORT, CAMS, MO, setParams } from "./lib.js";
 import { useCrumb, useShell } from "./shell.jsx";
 import { T, useColors } from "./theme.js";
-import { Lines, Bars, HBars, Dots } from "./charts.jsx";
+import { Lines, Bars, HBars, Ring, Area } from "./charts.jsx";
 
 const muted = { color: T.colorNeutralForeground2 }, faint = { color: T.colorNeutralForeground3 }, tab = { fontVariantNumeric: "tabular-nums" }, RED = T.colorPaletteRedForeground1;
 const Num = ({ v, u, size = 800, color }) => <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}><Text size={size} weight="semibold" style={{ color, ...tab, lineHeight: 1.1 }}>{v}</Text>{u && <Text size={400} style={muted}>{u}</Text>}</span>;
@@ -22,7 +22,7 @@ const Section = ({ title, sub, right, children }) => <div style={{ display: "fle
 </div>;
 
 export function Plates({ params }) {
-  useCrumb([["Plates"]]);
+  useCrumb([["Spotter"]]);
   const C0 = useColors(), sh = useShell() || {}, phone = !!sh.phone;
   const C = { ...C0, BRAND: C0.dark ? T.colorBrandForeground1 : C0.BRAND };   // the light accent is near-black in some designs: on a dark page the lines need the dark-mode brand
   const [runs, setRuns] = useState(null);
@@ -63,7 +63,7 @@ export function Plates({ params }) {
 
   return <>
     {top}
-    {view === "overview" && <Overview st={st} run={run} runInfo={runInfo} C={C} phone={phone} />}
+    {view === "overview" && <Overview st={st} run={run} runInfo={runInfo} runs={runs} C={C} phone={phone} />}
     {view === "vehicles" && <Vehicles run={run} st={st} C={C} phone={phone} params={params} />}
     {view === "scorecard" && <Scorecard run={run} st={st} C={C} phone={phone} />}
     {view === "runs" && <Runs runs={runs} pick={r => { pickRun(r); pickView("overview"); }} C={C} />}
@@ -71,8 +71,26 @@ export function Plates({ params }) {
 }
 
 // ------------------------------------------------------------------------------------------------ overview
-function Overview({ st, run, runInfo, C, phone }) {
+const STAGE_MIN = { clips: 50, subset: 14, vlm: 38, report: 9, enhance: 100 };
+const RUN = "#F97066";   // the run's own colour: progress ring and the stage in flight   // rough share of a run, for the stage bar's widths
+const zone = (p, warn, bad) => p >= bad ? "bad" : p >= warn ? "warn" : "ok";
+const kfmt = v => v == null ? "–" : v >= 10000 ? `${(v / 1000).toFixed(1)}k` : Math.round(v).toLocaleString();
+
+// a log-scaled bar per step, so the small end of the funnel stays visible
+function Funnel({ steps, C }) {
+  const top = Math.max(10, ...steps.map(s => s.v || 0));
+  return <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    {steps.map((s, i) => <div key={s.label} style={{ display: "grid", gridTemplateColumns: "118px 1fr auto", alignItems: "center", gap: 12 }}>
+      <Text size={300} style={muted}>{s.label}</Text>
+      <div style={{ height: 20, borderRadius: 6, background: T.colorNeutralBackground3, overflow: "hidden" }}><div style={{ width: `${Math.max(4, Math.log10(Math.max(1, s.v || 0)) / Math.log10(top) * 100)}%`, height: "100%", borderRadius: 6, background: s.color || C.BRAND, opacity: s.color ? 1 : 1 - 0.12 * i, transition: "width .6s" }} /></div>
+      <Text size={300} weight="semibold" style={{ ...tab, whiteSpace: "nowrap" }}>{kfmt(s.v)}{s.note && <Text size={200} style={faint}> {s.note}</Text>}</Text>
+    </div>)}
+  </div>;
+}
+
+function Overview({ st, run, runInfo, runs, C, phone }) {
   const [charts, setCharts] = useState(null), [tele, setTele] = useState(null);
+  const ZONE = { ok: C.GREEN, warn: C.AMBER, bad: RED };
   useEffect(() => {
     const a = () => { api(`/api/plates/charts?run=${encodeURIComponent(run)}`).then(setCharts).catch(() => {}); api(`/api/plates/telemetry?run=${encodeURIComponent(run)}&points=${phone ? 120 : 240}`).then(setTele).catch(() => {}); };
     a(); const i = setInterval(() => { if (!document.hidden && runInfo?.live) a(); }, 60000);
@@ -80,117 +98,103 @@ function Overview({ st, run, runInfo, C, phone }) {
   }, [run, runInfo?.live, phone]);
   const prog = st.progress, stage = prog?.stages?.[prog.current], sys = prog?.system;
   const allDone = prog && Object.values(prog.stages || {}).every(s => s.done >= s.total);
-  const running = prog && prog.age_s < 180 && !allDone;
-  const finished = prog && allDone;
+  const running = prog && prog.age_s < 180 && !allDone, finished = prog && allDone;
   const pct = runInfo?.pct ?? (stage ? Math.min(100, 100 * stage.done / Math.max(1, stage.total)) : 0);
   const clipsDone = st.clips?.done || 0, clipsAll = Object.values(st.clips || {}).reduce((a, b) => a + b, 0);
   const vlmAsked = (st.vlm || []).reduce((a, m) => a + m.asked, 0), vlmAns = (st.vlm || []).reduce((a, m) => a + m.answered, 0);
   const reads = Object.fromEntries((st.reads || []).map(r => [r.reader, r.n]));
-  const kpi = (l, v, u) => <div style={{ minWidth: 0 }}><Text size={300} style={muted} block>{l}</Text><Num v={v} u={u} size={600} /></div>;
-
-  let title, sub;
-  if (!st.available) { title = "Nothing here yet"; sub = `No database in this run's folder yet.`; }
-  else if (finished) { title = "Run finished"; sub = `${n0(clipsDone)} clips, ${n0(st.tracks?.n)} vehicles, ${n0(st.tracks?.with_plate)} with a plate · ${fmtDur(prog.elapsed_s)} in all`; }
-  else if (!running) { title = "Run stopped"; sub = prog ? `Last heard ${fmtDur(prog.age_s)} ago in "${STAGE_NAMES[prog.current] || prog.current}" · it resumes where it stopped when started again` : "No progress file yet."; }
-  else { title = STAGE_NAMES[prog.current] || prog.current; sub = stage?.eta_s != null ? `${n0(stage.done)} of ${n0(stage.total)} in this stage · about ${fmtDur(stage.eta_s)} left in it · ${fmtDur(prog.elapsed_s)} so far` : `${n0(stage?.done)} of ${n0(stage?.total)}`; }
-  const badge = <Badge appearance={running ? "filled" : "outline"} color={running ? "success" : finished ? "brand" : "informative"} shape="rounded">{running ? "Running" : finished ? "Done" : "Idle"}</Badge>;
   const meta = st.meta;
 
-  const head = <Card style={{ padding: "16px 20px", gap: 12 }}>
-    <div className="uplive" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>{badge}
-      <Text size={200} style={faint}>{meta ? `${meta.machine} · ${(meta.gpu || "").replace("NVIDIA GeForce ", "")} · driver ${meta.driver || "?"} · code ${meta.code_hash}` : "GPU machine"} · refreshes every 5 s{prog ? ` · progress file ${prog.age_s < 60 ? "just updated" : `${fmtDur(prog.age_s)} old`}` : ""}</Text></div>
-    <div className="upnums" style={{ display: "flex", alignItems: "baseline", gap: 18, flexWrap: "wrap" }}>
-      <Num v={Math.floor(pct)} u="%" size={1000} color={T.colorBrandForeground1} />
-      <div style={{ minWidth: 0, flex: 1 }}><Text className="display" size={600} weight="semibold" block>{title}</Text><Text size={300} style={muted} block>{sub}</Text></div>
+  let title, sub;
+  if (!st.available) { title = "Nothing here yet"; sub = "No database in this run's folder yet."; }
+  else if (finished) { title = "Run finished"; sub = `${n0(clipsDone)} clips · ${n0(st.tracks?.n)} vehicles · ${n0(st.tracks?.with_plate)} with a plate · ${fmtDur(prog.elapsed_s)} in all`; }
+  else if (!running) { title = "Run stopped"; sub = prog ? `last heard ${fmtDur(prog.age_s)} ago in "${STAGE_NAMES[prog.current] || prog.current}" · resumes where it stopped when started again` : "No progress file yet."; }
+  else { title = `${STAGE_NAMES[prog.current] || prog.current} · ${n0(stage?.done)} of ${n0(stage?.total)}`; sub = `${stage?.eta_s != null ? `about ${fmtDur(stage.eta_s)} left in this stage · ` : ""}${fmtDur(prog.elapsed_s)} so far${prog.started ? ` · started ${new Date((prog.started > 1e12 ? prog.started : prog.started * 1000)).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}`; }
+  const ringColor = finished ? C.GREEN : running ? RUN : T.colorNeutralForeground3;
+
+  // the stage bar: green done, brand in progress (with a pale remainder), grey ahead
+  const stagesArr = Object.entries(prog?.stages || {});
+  const stageBar = stagesArr.length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+    <div style={{ display: "flex", gap: 4 }}>{stagesArr.map(([k, s]) => { const d = s.total ? s.done / s.total : 0; return <div key={k} style={{ flex: STAGE_MIN[k] || 10, height: 12, borderRadius: 6, background: d >= 1 ? C.GREEN : d > 0 ? `linear-gradient(90deg, ${RUN} ${d * 100}%, ${RUN}44 ${d * 100}%)` : T.colorNeutralBackground3, transition: "background .6s" }} />; })}</div>
+    <div style={{ display: "flex", gap: 4 }}>{stagesArr.map(([k, s]) => <Text key={k} size={100} style={{ ...faint, flex: STAGE_MIN[k] || 10, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{STAGE_NAMES[k] || k}{s.done >= s.total ? " ✓" : s.done > 0 ? ` · ${Math.round(100 * s.done / Math.max(1, s.total))}%` : ""}</Text>)}</div>
+  </div>;
+
+  // gauges: percent of capacity, coloured by zone
+  const g = sys ? [
+    ["CPU", sys.cpu_pct, `${Math.round(sys.cpu_pct ?? 0)}%`, zone(sys.cpu_pct, 70, 90), sys.cpu_temp_c != null ? `${Math.round(sys.cpu_temp_c)} °C` : ""],
+    ["GPU", sys.gpu_util, `${Math.round(sys.gpu_util ?? 0)}%`, zone(sys.gpu_util, 85, 97), sys.gpu_power_w != null ? `${Math.round(sys.gpu_power_w)} W` : ""],
+    ["VRAM", sys.vram_total_gb ? 100 * sys.vram_used_gb / sys.vram_total_gb : 0, `${Math.round(sys.vram_total_gb ? 100 * sys.vram_used_gb / sys.vram_total_gb : 0)}%`, zone(sys.vram_total_gb ? 100 * sys.vram_used_gb / sys.vram_total_gb : 0, 80, 92), sys.vram_total_gb ? `${sys.vram_used_gb?.toFixed(1)} / ${sys.vram_total_gb} GB` : ""],
+    ["RAM", sys.ram_total_gb ? 100 * sys.ram_used_gb / sys.ram_total_gb : 0, `${Math.round(sys.ram_total_gb ? 100 * sys.ram_used_gb / sys.ram_total_gb : 0)}%`, zone(sys.ram_total_gb ? 100 * sys.ram_used_gb / sys.ram_total_gb : 0, 75, 90), sys.ram_total_gb ? `${Math.round(sys.ram_used_gb)} / ${Math.round(sys.ram_total_gb)} GB` : ""],
+    ["GPU °C", sys.gpu_temp_c != null ? sys.gpu_temp_c / 90 * 100 : 0, sys.gpu_temp_c != null ? `${Math.round(sys.gpu_temp_c)}°` : "–", zone(sys.gpu_temp_c ?? 0, 75, 84), "of 90° max"],
+  ] : [];
+  const gauges = sys && <div style={{ display: "flex", gap: phone ? 10 : 14, flexWrap: "wrap", justifyContent: phone ? "space-between" : "flex-end" }}>
+    {g.map(([l, p, txt, z, subt]) => <div key={l} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}><Ring pct={p} color={ZONE[z]} size={phone ? 64 : 80} stroke={phone ? 6 : 8} label={txt} sub={l} />{!phone && <Text size={100} style={faint}>{subt}</Text>}</div>)}
+  </div>;
+
+  const head = <Card style={{ padding: phone ? "14px 16px" : "18px 22px", gap: 14 }}>
+    <div style={{ display: "flex", gap: phone ? 14 : 26, alignItems: "center", flexWrap: phone ? "wrap" : "nowrap" }}>
+      <Ring pct={pct} color={ringColor} size={phone ? 104 : 148} stroke={phone ? 10 : 14} label={`${Math.floor(pct)}%`} sub="of the run" />
+      <div style={{ flex: 1, minWidth: 220, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <Badge appearance={running ? "filled" : "outline"} color={running ? "success" : finished ? "brand" : "informative"} shape="rounded">{running ? "Running" : finished ? "Done" : "Idle"}</Badge>
+          <Text className="display" size={phone ? 500 : 600} weight="semibold">{title}</Text></div>
+        <Text size={200} style={muted}>{sub}{meta ? ` · ${meta.machine} · ${(meta.gpu || "").replace("NVIDIA GeForce ", "")}` : ""}{prog ? ` · progress ${prog.age_s < 60 ? "just updated" : `${fmtDur(prog.age_s)} old`}` : ""}</Text>
+        {stageBar}
+      </div>
+      {!phone && gauges}
     </div>
-    <ProgressBar value={pct / 100} thickness="large" />
-    {prog?.stages && <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>{Object.entries(prog.stages).map(([k, s]) => <Text key={k} size={200} style={s.done >= s.total ? faint : muted}><b>{STAGE_NAMES[k] || k}</b> {n0(s.done)}/{n0(s.total)}{s.done < s.total && s.eta_s != null ? ` · ${fmtDur(s.eta_s)} left` : s.done >= s.total ? " ✓" : ""}</Text>)}</div>}
-    {st.available && <div className="upkpis" style={{ display: "flex", gap: 22, flexWrap: "wrap", marginTop: 4 }}>
-      {kpi("Clips", `${n0(clipsDone)} / ${n0(clipsAll)}`)}{kpi("Frames", n0(st.frames))}{kpi("Vehicles", n0(st.tracks?.n))}{kpi("With a plate", n0(st.tracks?.with_plate))}
-      {kpi("Plate boxes", n0(st.plate_boxes))}{kpi("Confident reads", n0(reads.cct_s ?? reads.mobilevit), "cct")}{kpi("Vision answers", `${n0(vlmAns)} / ${n0(vlmAsked)}`)}{kpi("Labelled", n0(st.labelled))}
-    </div>}
+    {phone && gauges}
     {st.errors?.length > 0 && <Text size={200} style={{ color: RED }}>{st.errors.length} clip error{st.errors.length > 1 ? "s" : ""} · latest: {st.errors[0].name} — {st.errors[0].err}</Text>}
   </Card>;
 
-  const tile = (t, big, sub, state) => ({ t, big, sub, state });
-  const vit = sys ? [
-    tile("CPU", sys.cpu_pct != null ? `${Math.round(sys.cpu_pct)} %` : "–", sys.cpu_temp_c != null ? `${Math.round(sys.cpu_temp_c)} °C` : "temperature not exposed by this board", sys.cpu_pct > 90 ? "hot" : "ok"),
-    tile("GPU", sys.gpu_util != null ? `${Math.round(sys.gpu_util)} %` : "–", `${sys.gpu_temp_c != null ? `${Math.round(sys.gpu_temp_c)} °C` : ""}${sys.gpu_power_w != null ? ` · ${Math.round(sys.gpu_power_w)} W` : ""}${sys.gpu_clock_mhz ? ` · ${Math.round(sys.gpu_clock_mhz)} MHz` : ""}`, sys.gpu_temp_c > 83 ? "hot" : "ok"),
-    tile("VRAM", sys.vram_used_gb != null ? `${sys.vram_used_gb.toFixed(1)} GB` : "–", sys.vram_total_gb ? `of ${sys.vram_total_gb} GB` : "", sys.vram_total_gb && sys.vram_used_gb / sys.vram_total_gb > 0.92 ? "hot" : "ok"),
-    tile("RAM", sys.ram_used_gb != null ? `${sys.ram_used_gb} GB` : "–", sys.ram_total_gb ? `of ${sys.ram_total_gb} GB` : "", "ok"),
-    tile("Disk", sys.disk_read_mbs != null ? `${sys.disk_read_mbs} / ${sys.disk_write_mbs}` : "–", `read / write MB/s${sys.disk_c_free_gb != null ? ` · ${Math.round(sys.disk_c_free_gb)} GB free on C:` : ""}`, "ok"),
-    tile("Network", sys.net_rx_mbs != null ? `${sys.net_rx_mbs} / ${sys.net_tx_mbs}` : "–", "in / out MB/s (clips come over the wire from this PC)", "ok"),
-  ] : [];
-  const machine = sys && <div className="vitals" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,170px),1fr))", gap: 12 }}>
-    {vit.map(v => <Card key={v.t} style={{ padding: "12px 16px", gap: 2 }}>
-      <Text size={300} weight="semibold">{v.t}</Text>
-      <div className="vbig"><Text className="display" size={700} weight="semibold" style={{ lineHeight: 1.1, whiteSpace: "nowrap", color: v.state === "hot" ? RED : undefined }}>{v.big}</Text></div>
-      <Text className="vsub" size={200} style={muted} block truncate>{v.sub}</Text>
-    </Card>)}
-  </div>;
-
-  // ---- telemetry over the run
-  const rows = tele?.rows || [], tl = rows.map(r => (r.time || "").slice(11, 16));
-  const ser = (k, name, color) => ({ name, color, values: rows.map(r => r[k]) });
-  const teleCharts = rows.length > 2 && <Card style={{ padding: "14px 16px", gap: 14 }}>
-    <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}><Text size={400} weight="semibold">Machine over the run</Text><Text size={200} style={faint}>{tele.samples.toLocaleString()} samples, one point every {tele.every_s >= 60 ? `${Math.round(tele.every_s / 60)} min` : `${tele.every_s} s`}</Text></div>
-    <div style={{ display: "grid", gridTemplateColumns: phone ? "1fr" : "repeat(auto-fit, minmax(300px, 1fr))", gap: "14px 24px" }}>
-      <Lines title="Load" unit="%" yMax={100} labels={tl} series={[ser("gpu_util", "GPU", C.BRAND), ser("cpu_pct", "CPU", C.OTHER)]} />
-      <Lines title="Memory" unit=" GB" labels={tl} series={[ser("vram_used_gb", "VRAM", C.BRAND), ser("ram_used_gb", "RAM", C.OTHER)]} />
-      <Lines title="GPU temperature" unit="°" yMax={90} labels={tl} series={[ser("gpu_temp_c", "GPU °C", C.AMBER)]} />
-      <Lines title="GPU power" unit=" W" labels={tl} series={[ser("gpu_power_w", "W", C.BRAND)]} />
-      <Lines title="Footage arriving" unit=" MB/s" labels={tl} series={[ser("net_rx_mbs", "network in", C.BRAND), ser("disk_read_mbs", "disk read", C.OTHER)]} />
+  const funnel = st.available && <Card style={{ padding: "16px 20px", gap: 12 }}>
+    <div><Text size={400} weight="semibold" block>From footage to plates</Text><Text size={200} style={faint}>how much survives each step</Text></div>
+    <Funnel C={C} steps={[{ label: "Clips", v: clipsDone, note: `of ${n0(clipsAll)}` }, { label: "Frames", v: st.frames, note: "sampled" }, { label: "Vehicles", v: st.tracks?.n, note: "tracked" },
+      { label: "With a plate", v: st.tracks?.with_plate, note: "box ≥ 28 px", color: C.BRAND }, { label: "Confident reads", v: reads.cct_s ?? reads.mobilevit, note: "cct · 70%+", color: C.BRAND },
+      { label: "Vision answers", v: vlmAns, note: `of ${n0(vlmAsked)} asked`, color: C.BRAND }, { label: "Labelled by you", v: st.labelled, note: "", color: C.AMBER }]} />
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginTop: 4 }}>
+      {(st.vlm || []).map(m => <Text key={m.model} size={200} style={muted}><b>{MODEL_SHORT(m.model)}</b> {n0(m.answered)}/{n0(m.asked)}{m.avg_s ? ` · ${m.avg_s} s` : ""}</Text>)}
     </div>
   </Card>;
 
-  // ---- what the run found
+  // the machine over the run: six smoothed areas, current value beside each
+  const rows = tele?.rows || [], tl = rows.length ? [(rows[0].time || "").slice(11, 16), "now"] : null;
+  const ser = k => rows.map(r => r[k]);
+  const lastOf = k => { const v = ser(k).filter(x => x != null); return v.length ? v[v.length - 1] : null; };
+  const teleCard = rows.length > 2 && <Card style={{ padding: "16px 20px", gap: 12 }}>
+    <div><Text size={400} weight="semibold" block>The machine, over the run</Text><Text size={200} style={faint}>{tele.samples.toLocaleString()} samples · one point every {tele.every_s >= 60 ? `${Math.round(tele.every_s / 60)} min` : `${tele.every_s} s`} · smoothed</Text></div>
+    <div style={{ display: "grid", gridTemplateColumns: phone ? "1fr" : "repeat(3, 1fr)", gap: "14px 26px" }}>
+      <Area id="gpu" title="GPU load" values={ser("gpu_util")} color={RUN} yMax={100} labels={tl} value={`${Math.round(lastOf("gpu_util") ?? 0)} %`} />
+      <Area id="cpu" title="CPU load" values={ser("cpu_pct")} color={T.colorPaletteBlueForeground2} yMax={100} labels={tl} value={`${Math.round(lastOf("cpu_pct") ?? 0)} %`} />
+      <Area id="vram" title="VRAM" values={ser("vram_used_gb")} color={RED} yMax={sys?.vram_total_gb || undefined} labels={tl} value={`${(lastOf("vram_used_gb") ?? 0).toFixed(1)} GB`} />
+      <Area id="ram" title="RAM" values={ser("ram_used_gb")} color={T.colorPaletteTealForeground2} yMax={sys?.ram_total_gb || undefined} labels={tl} value={`${(lastOf("ram_used_gb") ?? 0).toFixed(1)} GB`} />
+      <Area id="temp" title="GPU temperature" values={ser("gpu_temp_c")} color={C.AMBER} yMax={90} labels={tl} value={`${Math.round(lastOf("gpu_temp_c") ?? 0)} °C`} />
+      <Area id="pow" title="GPU power" values={ser("gpu_power_w")} color={C.GREEN} labels={tl} value={`${Math.round(lastOf("gpu_power_w") ?? 0)} W`} />
+    </div>
+  </Card>;
+
+  // findings: this run against the others, then this run's distributions
   const ch = charts || {};
+  const benchRuns = (runs?.runs || []).filter(r => r.kind === "bench" && r.tracks).slice().reverse();
   const widthOrder = ["<40", "40-60", "60-80", "80-110", "110-160", "160+"];
-  const pw = widthOrder.map(b => ({ label: `${b} px`, v: (ch.plate_width || []).find(x => x.bucket === b)?.n || 0 }));
-  const cams = CAMS.map(c => { const rs = (ch.per_camera || []).filter(x => x.camera === c); const tr = rs.reduce((a, x) => a + x.tracks, 0), wp = rs.reduce((a, x) => a + x.with_plate, 0); return { label: CAM_SHORT[c], v: wp, text: `${n0(wp)} of ${n0(tr)}` }; });
-  const stages = (st.timings || []).filter(t => t.s > 0).slice(0, 10).map(t => ({ label: t.stage.replace(/^read_/, "read "), v: t.s, text: `${dur(t.s)} · ${t.ms_each} ms each` }));
-  const thr = (ch.throughput || []).map(t => ({ label: (t.slot || "").slice(11, 16), v: t.clips }));
-  const motion = (ch.motion || []).map(m => ({ label: m.state, v: m.clips, text: `${m.clips} clips · ${n0(m.tracks)} vehicles` }));
-  const colors = (ch.colors || []).slice(0, 8).map(c => ({ label: c.color, v: c.n, color: { white: "#d8d8d8", silver: "#a8a8a8", black: "#333", red: "#c8403a", blue: "#3a6fc8", green: "#3f9a5a", yellow: "#d9b23a", orange: "#d9803a", purple: "#8a4fc8", grey: "#888" }[c.color] || C.OTHER }));
-  const dots = (ch.sharp_vs_width || []).map(p => ({ x: p.pw, y: p.sharp }));
+  const pw = widthOrder.map(b => ({ label: `${b}`, v: (ch.plate_width || []).find(x => x.bucket === b)?.n || 0 }));
+  const cams = CAMS.map(c => { const rs = (ch.per_camera || []).filter(x => x.camera === c); const tr = rs.reduce((a, x) => a + x.tracks, 0), wp = rs.reduce((a, x) => a + x.with_plate, 0); return { label: CAM_SHORT[c], v: wp, text: `${n0(wp)} of ${n0(tr)}` }; }).sort((a, b) => b.v - a.v);
+  const stages = (st.timings || []).filter(t => t.s > 0).slice(0, 8).map(t => ({ label: t.stage.replace(/^read_/, "read "), v: t.s, text: dur(t.s) }));
   const exps = ch.experiments || {};
   const sampling = ["fps1", "fps2", "fps4", "fps8", "keyframes"].filter(m => exps.sampling?.[m]).map(m => ({ mode: m, ...exps.sampling[m] }));
-  const dets = Object.entries(exps.detector || {});
-  const found = st.available && <Card style={{ padding: "14px 16px", gap: 16 }}>
-    <Text size={400} weight="semibold">What the run found</Text>
-    <div style={{ display: "grid", gridTemplateColumns: phone ? "1fr" : "repeat(auto-fit, minmax(280px, 1fr))", gap: "18px 28px" }}>
-      <Bars title="Plate size" sub="widest box per vehicle" items={pw} color={C.BRAND} />
-      <HBars title="Plates per camera" sub="vehicles with a readable-sized plate, of all vehicles seen" items={cams} color={C.BRAND} />
-      {stages.length > 0 && <HBars title="Where the time goes" sub="per stage, whole run" items={stages} color={C.OTHER} />}
-      {thr.length > 1 && <Bars title="Clips finished" sub="per 10 minutes" items={thr.slice(-24)} color={C.BRAND} />}
-      {motion.length > 0 && <HBars title="Car moving or parked" sub="from frame-to-frame motion" items={motion} color={C.OTHER} />}
-      {colors.length > 0 && <HBars title="Vehicle colours" items={colors} />}
-      {dots.length > 5 && <Dots title="Sharpness against plate size" sub="each dot a vehicle" points={dots} xLabel="plate px" yLabel="sharpness" color={C.BRAND} />}
-    </div>
-    {(sampling.length > 0 || dets.length > 0) && <div style={{ display: "grid", gridTemplateColumns: phone ? "1fr" : "repeat(auto-fit, minmax(300px, 1fr))", gap: "18px 28px" }}>
-      {sampling.length > 0 && <div><Text size={300} weight="semibold" block>Sampling rate experiment</Text><Text size={200} style={faint} block>{sampling[0].clips} clips: frames decoded, time, distinct confident reads</Text>
-        <table style={{ borderCollapse: "collapse", width: "100%", marginTop: 6 }}><tbody>
-          <tr>{["mode", "frames", "seconds", "vehicles", "reads"].map(h => <th key={h} style={{ textAlign: h === "mode" ? "left" : "right", fontWeight: 600, padding: "2px 6px", fontSize: 12, color: T.colorNeutralForeground2 }}>{h}</th>)}</tr>
-          {sampling.map(s => <tr key={s.mode}>{[s.mode, n0(s.frames), n0(s.seconds), n0(s.vehicles), n0(s.reads)].map((v, i) => <td key={i} style={{ textAlign: i ? "right" : "left", padding: "2px 6px", fontSize: 13, ...tab, borderTop: `1px solid ${T.colorNeutralStroke2}` }}>{v}</td>)}</tr>)}
-        </tbody></table></div>}
-      {dets.length > 0 && <div><Text size={300} weight="semibold" block>Vehicle detector experiment</Text><Text size={200} style={faint} block>vehicles found by width (scaled to 1448 px), and time</Text>
-        <table style={{ borderCollapse: "collapse", width: "100%", marginTop: 6 }}><tbody>
-          <tr>{["detector", "seconds", "<60", "60-120", "120-250", "≥250"].map(h => <th key={h} style={{ textAlign: h === "detector" ? "left" : "right", fontWeight: 600, padding: "2px 6px", fontSize: 12, color: T.colorNeutralForeground2 }}>{h}</th>)}</tr>
-          {dets.map(([k, d]) => <tr key={k}>{[k, n0(d.seconds), n0(d.by_width["<60"]), n0(d.by_width["60-120"]), n0(d.by_width["120-250"]), n0(d.by_width[">=250"])].map((v, i) => <td key={i} style={{ textAlign: i ? "right" : "left", padding: "2px 6px", fontSize: 13, ...tab, borderTop: `1px solid ${T.colorNeutralStroke2}` }}>{v}</td>)}</tr>)}
-        </tbody></table></div>}
-    </div>}
-  </Card>;
-
-  const models = st.available && <Card style={{ padding: "12px 16px", gap: 8 }}>
-    <Text size={300} weight="semibold">Readers</Text>
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 18px" }}>
-      {(st.reads || []).map(r => <Text key={r.reader} size={300}><b>{r.reader}</b> <span style={muted}>{n0(r.n)} confident</span></Text>)}
-      {(st.vlm || []).map(m => <Text key={m.model} size={300}><b>{MODEL_SHORT(m.model)}</b> <span style={muted}>{n0(m.answered)} of {n0(m.asked)} read{m.avg_s ? ` · ${m.avg_s} s each` : ""}{m.tok_s ? ` · ${m.tok_s} tok/s` : ""}</span></Text>)}
-      {!(st.reads || []).length && !(st.vlm || []).length && <Text size={300} style={muted}>Nothing read yet.</Text>}
+  const found = st.available && <Card style={{ padding: "16px 20px", gap: 16 }}>
+    <div><Text size={400} weight="semibold" block>Findings</Text><Text size={200} style={faint}>this run against earlier ones, then what this run saw</Text></div>
+    <div style={{ display: "grid", gridTemplateColumns: phone ? "1fr" : "repeat(3, 1fr)", gap: "18px 28px" }}>
+      {benchRuns.length > 0 && <HBars title="Vehicles with a plate, per run" items={benchRuns.map(r => ({ label: r.name, v: r.with_plate, color: r.name === run ? C.BRAND : T.colorNeutralForeground3, text: `${n0(r.with_plate)} · ${n0(r.clips_done)} clips` }))} />}
+      <Bars title="Plate size" sub="widest box per vehicle, px" items={pw} color={C.BRAND} />
+      <HBars title="Plates per camera" items={cams} color={C.BRAND} />
+      {stages.length > 0 && <HBars title="Where the time goes" sub="per stage" items={stages} color={C.OTHER} />}
+      {sampling.length > 0 && <Bars title="Sampling experiment" sub="confident reads per mode" items={sampling.map(s => ({ label: s.mode, v: s.reads }))} color={C.OTHER} />}
+      {sampling.length > 0 && <Bars title="Sampling experiment" sub="seconds per mode" items={sampling.map(s => ({ label: s.mode, v: Math.round(s.seconds) }))} color={C.OTHER} />}
     </div>
   </Card>;
 
-  return <>{head}{machine}{models}{teleCharts}{found}</>;
+  return <>{head}<div style={{ display: "grid", gridTemplateColumns: phone ? "1fr" : "minmax(0, 1fr) minmax(0, 1.5fr)", gap: 16, alignItems: "start" }}>{funnel}{teleCard}</div>{found}</>;
 }
 
 // ------------------------------------------------------------------------------------------------ vehicles
@@ -206,7 +210,7 @@ function Vehicles({ run, st, C, phone, params }) {
   }, [qs]);   // eslint-disable-line
   const set = k => v => { setF(x => ({ ...x, [k]: v })); setPage(0); };
   const items = data?.items || [];
-  const onLabel = (id, truth) => setData(d => d ? { ...d, items: d.items.map(t => t.id === id ? { ...t, truth } : t), labelled: d.labelled } : d);
+  const onLabel = (id, truth, state) => setData(d => d ? { ...d, items: d.items.map(t => t.id === id ? { ...t, truth, truth_state: state } : t), labelled: d.labelled } : d);
 
   const sel = (label, k, opts) => <Dropdown size="small" value={opts.find(o => o[0] === f[k])?.[1] || label} selectedOptions={[f[k]]} onOptionSelect={(e, d) => set(k)(d.optionValue)} style={{ minWidth: phone ? 120 : 140 }} aria-label={label}>
     {opts.map(([v, l]) => <Option key={v} value={v} text={l}>{l}</Option>)}</Dropdown>;
@@ -230,7 +234,7 @@ function Vehicles({ run, st, C, phone, params }) {
       <div style={{ position: "relative", background: "#111", aspectRatio: "4 / 3" }}>
         <img src={media(run, t.best_context)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
         <img src={media(run, t.best_crop)} alt="" loading="lazy" style={{ position: "absolute", left: 6, bottom: 6, width: "46%", borderRadius: 4, boxShadow: T.shadow8, border: "2px solid rgba(255,255,255,.9)" }} />
-        <span style={{ position: "absolute", right: 6, top: 6, display: "flex", gap: 4 }}>{t.truth && <Badge appearance="filled" color="success" shape="rounded" size="small">{t.truth}</Badge>}<Badge appearance="filled" color="informative" shape="rounded" size="small">{CAM_SHORT?.[t.camera] || t.camera}</Badge></span>
+        <span style={{ position: "absolute", right: 6, top: 6, display: "flex", gap: 4 }}>{t.truth && <Badge appearance="filled" color="success" shape="rounded" size="small">{t.truth_state ? `${t.truth_state} ` : ""}{t.truth}</Badge>}{!t.truth && t.state_vote && <Badge appearance="tint" color="brand" shape="rounded" size="small">{t.state_vote.state}{t.state_vote.of > 1 ? ` ·${t.state_vote.votes}/${t.state_vote.of}` : ""}</Badge>}<Badge appearance="filled" color="informative" shape="rounded" size="small">{CAM_SHORT?.[t.camera] || t.camera}</Badge></span>
       </div>
       <div style={{ padding: "8px 10px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
         <Text size={200} style={faint} block truncate>{when(t)} · {t.bucket} · plate {t.best_plate_w}px{t.sharp_best != null ? ` · sharp ${Math.round(t.sharp_best)}` : ""}</Text>
@@ -254,13 +258,13 @@ function Vehicles({ run, st, C, phone, params }) {
 function Detail({ run, id, C, phone, onClose, onMove, onLabel }) {
   const [t, setT] = useState(null), [truth, setTruth] = useState(""), [saving, setSaving] = useState(false), [prep, setPrep] = useState("pad_up"), [crop, setCrop] = useState(null);
   const inp = useRef(null);
-  useEffect(() => { setT(null); api(`/api/plates/track/${id}?run=${encodeURIComponent(run)}`).then(d => { setT(d); setTruth(d.truth || ""); setCrop(null); setTimeout(() => inp.current?.focus(), 50); }).catch(() => {}); }, [id, run]);
+  useEffect(() => { setT(null); api(`/api/plates/track/${id}?run=${encodeURIComponent(run)}`).then(d => { setT(d); setTruth(d.truth ? `${d.truth_state ? d.truth_state + " " : ""}${d.truth}` : ""); setCrop(null); setTimeout(() => inp.current?.focus(), 50); }).catch(() => {}); }, [id, run]);
   useEffect(() => { const el = document.getElementById("pldetail"); if (el && !phone) el.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [id]);   // eslint-disable-line
   if (!t) return <Card id="pldetail" style={{ padding: 16 }}><Spinner size="small" label="Loading vehicle…" /></Card>;
   const save = async (val, next) => {
-    const v = (val ?? truth).toUpperCase().replace(/[^A-Z0-9?]/g, "");
+    const v = (val ?? truth).toUpperCase().replace(/[^A-Z0-9? ]/g, "").trim();
     setSaving(true);
-    try { await post("/api/plates/label", { run, track_id: id, truth: v }); setTruth(v); onLabel(id, v || null); if (next && t.next_id) onMove(t.next_id); }
+    try { const r = await post("/api/plates/label", { run, track_id: id, truth: v }); setTruth(r.truth ? `${r.state ? r.state + " " : ""}${r.truth}` : ""); setT(x => ({ ...x, truth: r.truth || null, truth_state: r.state || null })); onLabel(id, r.truth || null, r.state || null); if (next && t.next_id) onMove(t.next_id); }
     catch (e) { /* the grid will show the old value */ }
     setSaving(false);
   };
@@ -268,7 +272,9 @@ function Detail({ run, id, C, phone, onClose, onMove, onLabel }) {
   for (const r of t.reads) if (r.prep === prep && r.detector === "alpr_v9t") { const f = frames[r.sec] = frames[r.sec] || { sec: r.sec, pw: r.pw }; if (!f[r.reader] || (r.conf || 0) > (f[r.reader].conf || 0)) f[r.reader] = r; }
   const readers = [...new Set(t.reads.map(r => r.reader))].sort(), secs = Object.values(frames).sort((a, b) => a.sec - b.sec);
   const preps = [...new Set(t.reads.map(r => r.prep))];
-  const col = txt => truth ? (txt === truth ? C.GREEN : txt ? RED : undefined) : undefined;
+  const plateTruth = (truth || "").replace(/^[A-Z]{2} /, "");
+  const col = txt => plateTruth ? (txt === plateTruth ? C.GREEN : txt ? RED : undefined) : undefined;
+  const stCol = st => t.truth_state ? (st === t.truth_state ? C.GREEN : st ? RED : undefined) : undefined;
   const confText = c => c == null ? "" : `${Math.round(c * 100)}`;
   const kept = t.crops || [], mainCrop = crop || (kept[0]?.file) || t.best_crop;
   const boxes = t.boxes || [], bsec = boxes.map(b => `${b.sec}s`);
@@ -297,15 +303,16 @@ function Detail({ run, id, C, phone, onClose, onMove, onLabel }) {
         <Text size={200} style={muted}>plate box {t.best_plate_w}px, detector {Math.round((t.best_det_conf || 0) * 100)}%{t.sharp_best != null ? ` · sharpness ${Math.round(t.sharp_best)}` : ""}{t.n_plate_frames ? ` · plate seen in ${t.n_plate_frames} frames` : ""}</Text>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "10px 12px", borderRadius: 8, background: T.colorNeutralBackground3 }}>
           <Text size={300} weight="semibold">True plate</Text>
-          <Input ref={inp} size="medium" value={truth} onChange={(e, d) => setTruth(d.value.toUpperCase())} onKeyDown={e => { if (e.key === "Enter") save(undefined, true); }} placeholder="type it, Enter = save & next" style={{ width: 170, ...tab, fontWeight: 600, letterSpacing: 1 }} aria-label="True plate" />
+          <Input ref={inp} size="medium" value={truth} onChange={(e, d) => setTruth(d.value.toUpperCase())} onKeyDown={e => { if (e.key === "Enter") save(undefined, true); }} placeholder="NV 593ZKU · Enter = save & next" style={{ width: 210, ...tab, fontWeight: 600, letterSpacing: 1 }} aria-label="True plate, state first" />
           <Button appearance="primary" size="small" disabled={saving} onClick={() => save(undefined, false)}>Save</Button>
           <Button appearance="secondary" size="small" disabled={saving} onClick={() => save("?", true)}>Unreadable</Button>
           {t.truth && <Button appearance="subtle" size="small" disabled={saving} onClick={() => save("", false)}>Clear</Button>}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "3px 14px" }}>
-          {fastLine.map(([k, v]) => <React.Fragment key={k}><Text size={300} style={muted}>{k}</Text><Text size={400} weight="semibold" style={{ ...tab, color: col(v.text) ?? (v.format_ok === false ? C.AMBER : undefined) }}>{v.text}<Text size={200} style={faint}> · vote {v.score}{v.format_ok ? " · known format" : ""}</Text></Text></React.Fragment>)}
+          {fastLine.map(([k, v]) => <React.Fragment key={k}><Text size={300} style={muted}>{k}</Text><Text size={400} weight="semibold" style={{ ...tab, color: col(v.text) ?? (v.format_ok === false ? C.AMBER : undefined) }}>{v.text}<Text size={200} style={faint}> · vote {v.score}{(t.format_states?.[k] || []).length ? ` · pattern fits ${t.format_states[k].join(" / ")}` : ""}</Text></Text></React.Fragment>)}
           {(t.vlm || []).map(m => <React.Fragment key={m.model}><Text size={300} style={muted}>{MODEL_SHORT(m.model)}</Text>
-            <Tooltip content={m.raw || ""} relationship="description"><Text size={400} weight="semibold" style={{ ...tab, color: col(m.text) }}>{m.text}<Text size={200} style={faint}> · {m.seconds} s{m.tok_s ? ` · ${m.tok_s} tok/s` : ""}{m.think_off ? " · thinking off" : ""}</Text></Text></Tooltip></React.Fragment>)}
+            <Tooltip content={m.raw || ""} relationship="description"><Text size={400} weight="semibold" style={{ ...tab }}>{m.state && <span style={{ color: stCol(m.state), marginRight: 6 }}>{m.state}</span>}<span style={{ color: col(m.text) }}>{m.text}</span><Text size={200} style={faint}> · {m.seconds} s{m.tok_s ? ` · ${m.tok_s} tok/s` : ""}{m.think_off ? " · thinking off" : ""}</Text></Text></Tooltip></React.Fragment>)}
+          {(t.state_vote || t.state_clip) && <><Text size={300} style={muted}>state</Text><Text size={300}>{t.state_vote ? <><b style={{ color: stCol(t.state_vote.state) }}>{t.state_vote.state}</b> <span style={faint}>{t.state_vote.votes} of {t.state_vote.of} models</span></> : <span style={faint}>no model named one</span>}{t.state_clip ? <span style={faint}> · plate design looks like <b style={{ color: stCol(t.state_clip) }}>{t.state_clip}</b> ({Math.round((t.state_clip_p || 0) * 100)}%)</span> : null}</Text></>}
         </div>
       </div>
     </div>
@@ -336,17 +343,17 @@ function Scorecard({ run, st, C, phone }) {
       {sc.labelled > 0 && <Button appearance="subtle" size="small" as="a" href={`/api/plates/labels.csv?run=${encodeURIComponent(run)}`}>Download labels</Button>}</>}>
     {sc.labelled > 0 && <Card style={{ padding: "8px 8px", overflowX: "auto" }}>
       <table style={{ borderCollapse: "collapse", width: "100%", minWidth: phone ? 560 : 720 }}><tbody>
-        <tr>{th("method")}{th("reader")}{th("n", true)}<th style={{ textAlign: "left", padding: "4px 8px", fontSize: 12, fontWeight: 600, color: T.colorNeutralForeground2, width: "22%" }}>exact</th><th style={{ textAlign: "left", padding: "4px 8px", fontSize: 12, fontWeight: 600, color: T.colorNeutralForeground2, width: "18%" }}>within 1 char</th>{th("answered", true)}{th("time / plate", true)}</tr>
-        {rows.map((m, i) => <tr key={i}>
+        <tr>{th("method")}{th("reader")}{th("n", true)}<th style={{ textAlign: "left", padding: "4px 8px", fontSize: 12, fontWeight: 600, color: T.colorNeutralForeground2, width: "20%" }}>exact</th><th style={{ textAlign: "left", padding: "4px 8px", fontSize: 12, fontWeight: 600, color: T.colorNeutralForeground2, width: "16%" }}>within 1 char</th>{th("answered", true)}{th("state right", true)}{th("time / plate", true)}</tr>
+        {rows.map((m, i) => { const so = m.method.startsWith("state/"); return <tr key={i}>
           {td(m.method)}{td(m.reader.replace(/:latest$/, ""), false, { color: T.colorNeutralForeground2 })}{td(m.n, true)}
-          <td style={{ padding: "5px 8px", borderTop: `1px solid ${T.colorNeutralStroke2}` }}>{bar(m.exact_pct, C.GREEN)}</td>
-          <td style={{ padding: "5px 8px", borderTop: `1px solid ${T.colorNeutralStroke2}` }}>{bar(m.within1_pct, C.BRAND)}</td>
-          {td(`${Math.round(m.answered_pct)}%`, true)}{td(m.ms == null ? "–" : m.ms >= 1000 ? `${(m.ms / 1000).toFixed(1)} s` : `${Math.round(m.ms)} ms`, true)}
-        </tr>)}
+          <td style={{ padding: "5px 8px", borderTop: `1px solid ${T.colorNeutralStroke2}` }}>{so ? <Text size={200} style={faint}>state only</Text> : bar(m.exact_pct, C.GREEN)}</td>
+          <td style={{ padding: "5px 8px", borderTop: `1px solid ${T.colorNeutralStroke2}` }}>{so ? "" : bar(m.within1_pct, C.BRAND)}</td>
+          {td(so ? "–" : `${Math.round(m.answered_pct)}%`, true)}{td(m.state_pct == null ? "–" : `${Math.round(m.state_pct)}% of ${m.state_n}`, true)}{td(m.ms == null ? "–" : m.ms >= 1000 ? `${(m.ms / 1000).toFixed(1)} s` : `${Math.round(m.ms)} ms`, true)}
+        </tr>; })}
         {!rows.length && <tr><td colSpan={7} style={{ padding: 10 }}><Text size={300} style={muted}>Nothing in this family yet.</Text></td></tr>}
       </tbody></table>
     </Card>}
-    <Text size={200} style={faint}>exact = the read matches the label character for character · within 1 = one character wrong, missing or extra · answered = gave a plate rather than "?" · ms = time for that one read on the GPU machine, where recorded</Text>
+    <Text size={200} style={faint}>exact = the read matches the label character for character · within 1 = one character wrong, missing or extra · answered = gave a plate rather than "?" · state right = the state it named matches the label, over the {sc.state_labelled || 0} labels that carry a state (type it first in the label box: NV 593ZKU) · time = for that one read on the GPU machine, where recorded</Text>
   </Section>;
 }
 

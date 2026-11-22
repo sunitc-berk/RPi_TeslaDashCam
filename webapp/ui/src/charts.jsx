@@ -77,3 +77,47 @@ export function Dots({ points, height = 140, xLabel, yLabel, color, title, sub }
     </div>
   </div>;
 }
+
+// A progress ring: the number in the middle, a small caption under it.
+export function Ring({ pct, color, size = 96, stroke = 10, label, sub, track }) {
+  const r = (size - stroke) / 2, c = 2 * Math.PI * r, p = Math.max(0, Math.min(100, pct || 0));
+  return <div style={{ position: "relative", width: size, height: size, flex: "none" }}>
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={track || T.colorNeutralBackground3} strokeWidth={stroke} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={`${c * p / 100} ${c}`} transform={`rotate(-90 ${size / 2} ${size / 2})`} style={{ transition: "stroke-dasharray .6s ease" }} />
+    </svg>
+    <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
+      <Text weight="bold" style={{ fontSize: Math.round(size * 0.22), letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>{label}</Text>
+      {sub && <Text size={100} style={{ ...faint, marginTop: 3 }}>{sub}</Text>}
+    </div>
+  </div>;
+}
+
+// A smoothed area chart of one series with the current value beside the title.
+function smoothD(vals, W, H, lo, hi, pad = 3) {
+  const n = vals.length, P = vals.map((v, i) => [(n === 1 ? W / 2 : i / (n - 1) * W), H - pad - (Math.min(hi, Math.max(lo, v ?? lo)) - lo) / (hi - lo) * (H - 2 * pad)]);
+  let d = `M${P[0][0].toFixed(1)},${P[0][1].toFixed(1)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(n - 1, i + 2)];
+    d += `C${(p1[0] + (p2[0] - p0[0]) / 6).toFixed(1)},${(p1[1] + (p2[1] - p0[1]) / 6).toFixed(1)} ${(p2[0] - (p3[0] - p1[0]) / 6).toFixed(1)},${(p2[1] - (p3[1] - p1[1]) / 6).toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+  }
+  return { d, area: `${d}L${W},${H}L0,${H}Z`, last: P[n - 1] };
+}
+const movingAvg = (v, k) => v.map((_, i) => { const w = v.slice(Math.max(0, i - k), i + k + 1).filter(x => x != null); return w.length ? w.reduce((a, b) => a + b, 0) / w.length : null; });
+export function Area({ values, color, title, value, labels, height = 86, yMax, yMin = 0, smooth = 2, id }) {
+  const W = 480, H = height, v = movingAvg(values, smooth);
+  const nums = v.filter(x => x != null);
+  if (nums.length < 2) return <div style={{ display: "flex", flexDirection: "column", gap: 4 }}><Text size={300} weight="semibold">{title}</Text><Text size={200} style={faint}>not enough samples yet</Text></div>;
+  const hi = yMax ?? (Math.max(...nums) * 1.12 || 1), lo = yMin;
+  const { d, area, last } = smoothD(v.map(x => x ?? lo), W, H, lo, hi);
+  const gid = `g-${id || title.replace(/\W/g, "")}`;
+  return <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}><Text size={300} weight="semibold">{title}</Text><Text size={400} weight="bold" style={{ color, fontVariantNumeric: "tabular-nums" }}>{value}</Text></div>
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true" style={{ width: "100%", height: H, display: "block", overflow: "visible" }}>
+      <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={color} stopOpacity=".28" /><stop offset="1" stopColor={color} stopOpacity="0" /></linearGradient></defs>
+      <path d={area} fill={`url(#${gid})`} /><path d={d} fill="none" stroke={color} strokeWidth="2.2" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      <circle cx={last[0]} cy={last[1]} r="4" fill={color} stroke={T.colorNeutralBackground1} strokeWidth="2" vectorEffect="non-scaling-stroke" />
+    </svg>
+    {labels && <div style={{ display: "flex", justifyContent: "space-between" }}><Text size={100} style={faint}>{labels[0]}</Text><Text size={100} style={faint}>{labels[1]}</Text></div>}
+  </div>;
+}

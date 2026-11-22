@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from "r
 import { createPortal } from "react-dom";
 import { FluentProvider, Text, Breadcrumb, BreadcrumbItem, BreadcrumbButton, BreadcrumbDivider, SearchBox, PresenceBadge, Toaster, Toast, ToastTitle, useToastController, useId, Link, Button, OverlayDrawer, DrawerHeader, DrawerHeaderTitle, DrawerBody } from "@fluentui/react-components";
 import { Video24Regular, Video24Filled, Pin24Regular, Pin24Filled, ArrowUpload24Regular, ArrowUpload24Filled, DeveloperBoard24Regular, DeveloperBoard24Filled, Database24Regular, Database24Filled, Settings24Regular, Settings24Filled, VehicleCar24Regular, VehicleCar24Filled, CalendarLtr24Regular, Search24Regular, Dismiss24Regular, ArrowLeft24Regular } from "@fluentui/react-icons";
-import { ROUTE, LIVE, THEME, BUS, useStore, go, hrefOf, pillState, pollLive, pollDiag, startRouter } from "./lib.js";
+import { ROUTE, LIVE, THEME, BUS, useStore, go, hrefOf, pillState, pollLive, pollDiag, startRouter, api } from "./lib.js";
 import { useFluentTheme, T } from "./theme.js";
 import { DESIGN } from "./designs.js";
 import { Footage } from "./footage.jsx";
@@ -15,10 +15,10 @@ import { Settings } from "./settings.jsx";
 import { Plates } from "./plates.jsx";
 
 const PAGES = { drives: Footage, kept: Footage, player: Player, status: Uploads, health: Pi, storage: Storage, system: Settings, plates: Plates };
-const TITLES = { drives: "Footage", kept: "Kept", player: "Player", status: "Uploads", health: "Pi", storage: "Storage", system: "Settings", plates: "Plates" };
+const TITLES = { drives: "Footage", kept: "Kept", player: "Player", status: "Uploads", health: "Pi", storage: "Storage", system: "Settings", plates: "Spotter" };
 const RAIL = [["footage", "Footage", "drives", Video24Regular, Video24Filled], ["kept", "Kept", "kept", Pin24Regular, Pin24Filled], ["uploads", "Uploads", "status", ArrowUpload24Regular, ArrowUpload24Filled],
   ["pi", "Pi", "health", DeveloperBoard24Regular, DeveloperBoard24Filled], ["storage", "Storage", "storage", Database24Regular, Database24Filled],
-  ["plates", "Plates", "plates", VehicleCar24Regular, VehicleCar24Filled]];
+  ["plates", "Spotter", "plates", VehicleCar24Regular, VehicleCar24Filled]];
 const RAIL_OF = { drives: "footage", kept: "kept", player: "footage", status: "uploads", health: "pi", storage: "storage", system: "settings", plates: "plates" };
 
 export const Shell = createContext(null);
@@ -40,17 +40,35 @@ export function useCrumb(crumb) {
   useEffect(() => { sh.setCrumb(crumb); }, [key]);   // eslint-disable-line
 }
 
-const RailItem = ({ on, label, R, F, href, title }) => <a href={href} title={title} className="rail-item" aria-current={on ? "page" : undefined} style={{ position: "relative", width: 76, height: 64, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, borderRadius: T.borderRadiusLarge, textDecoration: "none",
+// the Spotter icon shows the GPU machine's run while one is going: a ring with its percentage
+let SPOT = { live: false, pct: 0 }; const SPOT_SUBS = new Set();
+function useSpotter() {
+  const [v, setV] = useState(SPOT);
+  useEffect(() => {
+    SPOT_SUBS.add(setV);
+    if (SPOT_SUBS.size === 1) {
+      const poll = () => { if (document.hidden) return; api("/api/plates/runs").then(r => { const live = (r.runs || []).find(x => x.live); SPOT = { live: !!live, pct: live ? live.pct || 0 : 0, name: live?.name }; SPOT_SUBS.forEach(f => f(SPOT)); }).catch(() => {}); };
+      poll(); SPOT.timer = setInterval(poll, 30000);
+    }
+    return () => { SPOT_SUBS.delete(setV); if (!SPOT_SUBS.size) clearInterval(SPOT.timer); };
+  }, []);
+  return v;
+}
+const SpotRing = ({ pct, size = 40, stroke = 3 }) => { const r = (size - stroke) / 2, c = 2 * Math.PI * r; return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true" style={{ position: "absolute" }}>
+  <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={T.colorNeutralStroke2} strokeWidth={stroke} /><circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={T.colorBrandForeground1} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={`${c * Math.min(100, pct) / 100} ${c}`} transform={`rotate(-90 ${size / 2} ${size / 2})`} /></svg>; };
+
+const RailItem = ({ on, label, R, F, href, title, ring }) => <a href={href} title={title} className="rail-item" aria-current={on ? "page" : undefined} style={{ position: "relative", width: 76, height: 64, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, borderRadius: T.borderRadiusLarge, textDecoration: "none",
   background: on ? T.colorNeutralBackground1 : "transparent", boxShadow: on ? T.shadow2 : "none", color: on ? T.colorBrandForeground1 : T.colorNeutralForeground2 }}>
   {on && <span style={{ position: "absolute", left: 0, top: 18, bottom: 18, width: 3, borderRadius: 2, background: T.colorBrandForeground1 }} />}
-  {on ? <F /> : <R />}<Text size={200} weight={on ? "semibold" : "regular"} style={{ color: "inherit" }}>{label}</Text></a>;
+  {ring ? <span style={{ position: "relative", width: 40, height: 40, display: "grid", placeItems: "center" }}><SpotRing pct={ring.pct} />{on ? <F /> : <R />}</span> : (on ? <F /> : <R />)}
+  <Text size={200} weight={on ? "semibold" : "regular"} style={{ color: "inherit", fontVariantNumeric: "tabular-nums" }}>{ring ? `${Math.floor(ring.pct)}%` : label}</Text></a>;
 
 function Rail({ on }) {
-  const live = useStore(LIVE), p = pillState(live);
+  const live = useStore(LIVE), p = pillState(live), spot = useSpotter();
   const status = p.kind === "up" ? "busy" : p.kind === "ok" ? "available" : p.kind === "wait" ? "away" : "offline";
   return <nav aria-label="Main" className="rail" style={{ flex: "0 0 92px", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 0", background: T.colorNeutralBackground3, borderRight: `1px solid ${T.colorNeutralStroke2}`, overflow: "hidden" }}>
     <a href="#/drives" aria-label="TeslaCam" style={{ width: 44, height: 44, marginBottom: 10, borderRadius: T.borderRadiusLarge, background: T.colorBrandBackground, display: "grid", placeItems: "center", color: T.colorNeutralForegroundOnBrand }}><VehicleCar24Regular /></a>
-    {RAIL.map(([k, l, page, R, F]) => <RailItem key={k} on={k === on} label={l} R={R} F={F} href={`#/${page}`} />)}
+    {RAIL.map(([k, l, page, R, F]) => <RailItem key={k} on={k === on} label={l} R={R} F={F} href={`#/${page}`} ring={k === "plates" && spot.live ? spot : null} title={k === "plates" && spot.live ? `${l} · run ${Math.floor(spot.pct)}% done` : undefined} />)}
     <a href="#/status" title={p.title} className="rail-state" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, height: 56, marginTop: 8, justifyContent: "center", textDecoration: "none" }}>
       <PresenceBadge status={status} size="small" />
       {p.kind === "up" ? <span style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.15 }}><Text size={300} weight="semibold" style={{ color: T.colorBrandForeground1 }}>{Math.floor(p.pct)}%</Text><Text size={200} style={{ color: T.colorNeutralForeground2 }}>Uploading</Text></span>
@@ -99,13 +117,13 @@ function PhoneBar({ crumb, topEl, q, onSearch, hasPanel, onSheet }) {
 
 // the phone's bottom tabs; the Uploads tab shows the percentage while an upload runs
 function PhoneTabs({ on }) {
-  const live = useStore(LIVE), p = pillState(live), up = p.kind === "up";
+  const live = useStore(LIVE), p = pillState(live), up = p.kind === "up", spot = useSpotter();
   return <nav aria-label="Main" className="ptabs" style={{ flex: "none", display: "flex", background: T.colorNeutralBackground1, borderTop: `1px solid ${T.colorNeutralStroke2}`, paddingBottom: "env(safe-area-inset-bottom)" }}>
-    {RAIL.map(([k, l, page, R, F]) => { const sel = k === on, busy = k === "uploads" && up; return <a key={k} href={`#/${page}`} className="ptab" aria-current={sel ? "page" : undefined} aria-label={busy ? `${l}, ${Math.floor(p.pct)} percent` : l}
+    {RAIL.map(([k, l, page, R, F]) => { const sel = k === on, busy = k === "uploads" && up, spotting = k === "plates" && spot.live; return <a key={k} href={`#/${page}`} className="ptab" aria-current={sel ? "page" : undefined} aria-label={busy ? `${l}, ${Math.floor(p.pct)} percent` : spotting ? `${l}, run ${Math.floor(spot.pct)} percent done` : l}
       style={{ flex: 1, height: 60, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, textDecoration: "none", color: sel ? T.colorBrandForeground1 : T.colorNeutralForeground3 }}>
-      <span style={{ position: "relative", display: "grid", placeItems: "center", width: 44, height: 26, borderRadius: 13, background: sel ? T.colorNeutralBackground3 : "transparent" }}>{sel ? <F /> : <R />}
+      <span style={{ position: "relative", display: "grid", placeItems: "center", width: 44, height: 26, borderRadius: 13, background: sel ? T.colorNeutralBackground3 : "transparent" }}>{spotting && <SpotRing pct={spot.pct} size={30} stroke={2.5} />}{sel ? <F /> : <R />}
         {busy && <PresenceBadge status="busy" size="extra-small" style={{ position: "absolute", top: 1, right: 6 }} />}</span>
-      <Text size={200} weight={sel ? "semibold" : "regular"} style={{ color: "inherit", fontVariantNumeric: "tabular-nums" }}>{busy ? `${Math.floor(p.pct)}%` : l}</Text></a>; })}
+      <Text size={200} weight={sel ? "semibold" : "regular"} style={{ color: "inherit", fontVariantNumeric: "tabular-nums" }}>{busy ? `${Math.floor(p.pct)}%` : spotting ? `${Math.floor(spot.pct)}%` : l}</Text></a>; })}
   </nav>;
 }
 
