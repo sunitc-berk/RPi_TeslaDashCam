@@ -7,6 +7,7 @@ import { ChevronDown16Regular, ChevronUp16Regular, VehicleCar24Regular, Develope
 import { api, LIVE, useStore, upState, parseLost, hm, ymd, wd3, mo3, signed, plural, pad, parseT, fmtB, ago } from "./lib.js";
 import { useCrumb } from "./shell.jsx";
 import { T, useColors } from "./theme.js";
+import { Ring } from "./charts.jsx";
 import { systemIssues, dismiss, Notice } from "./settings.jsx";
 
 const muted = { color: T.colorNeutralForeground2 }, faint = { color: T.colorNeutralForeground3 };
@@ -108,7 +109,7 @@ export function Pi() {
   const cpuNow = lastVal(m, "cpu_usage_pct"), mem = lastVal(m, "memory_used_pct"), uv = m.filter(r => r.under_voltage_now).length, thr = m.filter(r => r.throttled_now).length;
   const okSy = syP.filter(s => s.success), avgRate = okSy.length ? okSy.reduce((a, s) => a + s.mb_per_s, 0) / okSy.length : syP.length ? syP.reduce((a, s) => a + s.mb_per_s, 0) / syP.length : null;
   const wNow = dbm ?? (vW.length ? vW[vW.length - 1] : null);
-  const Z = { ok: C.GREEN, warn: C.AMBER, bad: C.AMBER, mid: T.colorNeutralForeground4 };
+  const Z = { ok: C.GREEN, warn: C.AMBER, bad: T.colorPaletteRedForeground1, mid: C.AMBER };
   const vitals = [
     { title: "Temperature", big: nowT != null ? `${Math.round(nowT)}°` : "–", state: good(nowT == null ? null : nowT < 65, nowT == null ? "–" : nowT < 65 ? "Cool" : nowT < 75 ? "Warm" : "Hot"),
       gauge: { value: nowT, min: 20, max: 90, unit: "°", zones: [[20, 65, "ok", "cool"], [65, 75, "warn", "warm"], [75, 90, "bad", "hot"]] }, sub: vT.length ? `${Math.round(Math.min(...vT))}° to ${Math.round(Math.max(...vT))}° · hottest ${hot ? pdate(Date.parse(hot.time)) : ""}` : "no readings", spark: ["cpu_temp_c", [20, 80], [65, 75]] },
@@ -123,12 +124,13 @@ export function Pi() {
     return <svg viewBox={`0 0 960 ${h}`} preserveAspectRatio="none" aria-hidden="true" style={{ width: "100%", height: h, display: "block" }}>
       {marks.map(v => <line key={v} x1="0" x2="960" y1={y(v)} y2={y(v)} stroke={C.AMBER} strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />)}
       <path d={p.area} fill={C.BRAND} opacity=".10" /><path d={p.d} fill="none" stroke={C.BRAND} strokeWidth="2" vectorEffect="non-scaling-stroke" /></svg>; };
-  const Gauge = ({ g }) => { const span = g.max - g.min, pos = g.value == null ? null : Math.max(0, Math.min(100, (g.value - g.min) / span * 100));
-    return <div aria-label={g.value == null ? "no reading" : `${g.value}${g.unit} on a scale from ${g.min} to ${g.max}`} style={{ margin: "6px 0 2px" }}>
-      <div style={{ position: "relative", height: 22 }}>
-        <div style={{ position: "absolute", left: 0, right: 0, top: 7, height: 8, borderRadius: 4, overflow: "hidden", display: "flex" }}>{g.zones.map(([a, b, kind]) => <span key={a} style={{ width: `${(b - a) / span * 100}%`, background: Z[kind], opacity: kind === "mid" ? .35 : .55 }} />)}</div>
-        {pos != null && <span style={{ position: "absolute", left: `${pos}%`, top: 1, width: 6, height: 20, marginLeft: -3, borderRadius: 3, background: T.colorNeutralForeground1, boxShadow: `0 0 0 2px ${T.colorNeutralBackground1}` }} />}</div>
-      <div style={{ display: "flex", position: "relative", height: 14 }}>{g.zones.map(([a, b, kind, label]) => <Text key={a} size={200} style={{ width: `${(b - a) / span * 100}%`, textAlign: "center", color: kind === "mid" ? T.colorNeutralForeground3 : Z[kind], whiteSpace: "nowrap", overflow: "hidden" }}>{label}</Text>)}</div></div>; };
+  // the four vitals as dials in the header: position on the scale, coloured by the zone the reading is in
+  const dialOf = v => { const g = v.gauge, span = g.max - g.min, val = g.value; const pos = val == null ? 0 : Math.max(0, Math.min(100, (val - g.min) / span * 100));
+    const zone = val == null ? null : (g.zones.find(([a, b]) => val >= a && val < b) || g.zones[g.zones.length - 1])[2];
+    return { title: v.title, pct: pos, color: zone ? Z[zone] : T.colorNeutralForeground4, label: v.big.replace(" MB/s", "").replace(" dBm", ""), sub: v.title === "Upload speed" ? "MB/s" : v.title === "Wi-Fi" ? "dBm" : v.title === "Processor" ? "CPU" : "°C", state: v.state[1] }; };
+  const dials = <div className="pidials" style={{ display: "flex", gap: 14, flexWrap: "wrap", justifyContent: "flex-end" }}>
+    {vitals.map(dialOf).map(d => <div key={d.title} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}><Ring pct={d.pct} color={d.color} size={84} stroke={8} label={d.label} sub={d.sub} /><Text size={200} weight="semibold" style={{ color: d.color }}>{d.state}</Text></div>)}
+  </div>;
   const stateBadge = st => <Badge appearance="tint" shape="rounded" size="large" color={st[0] === C.GREEN ? "success" : st[0] === C.AMBER ? "warning" : "informative"} style={{ fontWeight: 600 }}>{st[1]}</Badge>;
   const Bars = ({ bars }) => { const h = 48, top = Math.max(5, ...bars.map(b => b.mb_per_s || 0)) * 1.1;
     return <div aria-hidden="true" style={{ height: h, display: "flex", alignItems: "flex-end", gap: 2 }}>{bars.length ? bars.map((b, i) => <span key={i} style={{ flex: 1, height: Math.max(2, (b.mb_per_s || 0) / top * h), background: b.success ? C.BRAND : C.AMBER, borderRadius: "2px 2px 0 0" }} />) : <span style={{ flex: 1, borderTop: `1px dashed ${T.colorNeutralStroke1}` }} />}</div>; };
@@ -157,9 +159,12 @@ export function Pi() {
     {issues.map(i => <Notice key={i.key} i={i} onHide={() => { dismiss(i.key, i.stamp); bump(x => x + 1); }} />)}
 
     <Card className="featured" style={{ padding: "22px 24px 20px", gap: 16 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" }}><Dot c={mood === true ? C.GREEN : mood === false ? C.AMBER : T.colorNeutralForeground4} s={12} />
-        <Text as="h1" className="display" size={800} weight="semibold" style={{ margin: 0, lineHeight: 1.1 }}>{headline}</Text></div>
-      <Text size={400} style={{ ...muted, marginTop: -8 }}>{sub}</Text>
+      <div className="pihead" style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 320px", minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" }}><Dot c={mood === true ? C.GREEN : mood === false ? C.AMBER : T.colorNeutralForeground4} s={12} />
+            <Text as="h1" className="display" size={800} weight="semibold" style={{ margin: 0, lineHeight: 1.1 }}>{headline}</Text></div>
+          <Text size={400} style={muted}>{sub}</Text></div>
+        {dials}</div>
       <div className="pipeline" style={{ display: "flex", alignItems: "center", gap: 0 }}><Node n={nodes[0]} /><Link l={links[0]} /><Node n={nodes[1]} /><Link l={links[1]} /><Node n={nodes[2]} /></div>
     </Card>
 
@@ -185,7 +190,6 @@ export function Pi() {
       {vitals.map(v => <Card key={v.title} style={{ padding: "16px 20px", gap: 4 }}>
         <Text size={300} weight="semibold">{v.title}</Text>
         <div className="vbig" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}><Text className="display" size={800} weight="semibold" style={{ lineHeight: 1.1, whiteSpace: "nowrap" }}>{v.big}</Text>{stateBadge(v.state)}</div>
-        <Gauge g={v.gauge} />
         <Text className="vsub" size={200} style={muted} block truncate>{v.sub}</Text>
         {v.spark ? <Spark k={v.spark[0]} range={v.spark[1]} marks={v.spark[2]} /> : <Bars bars={v.bars} />}
       </Card>)}

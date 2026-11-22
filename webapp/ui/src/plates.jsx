@@ -72,7 +72,7 @@ export function Plates({ params }) {
 
 // ------------------------------------------------------------------------------------------------ overview
 const STAGE_MIN = { clips: 50, subset: 14, vlm: 38, report: 9, enhance: 100 };
-const RUN = "#F97066";   // the run's own colour: progress ring and the stage in flight   // rough share of a run, for the stage bar's widths
+const RUN = "#0E8A4F";   // the run's own colour: progress ring and the stage in flight (green; done stages are the same green, solid)   // rough share of a run, for the stage bar's widths
 const zone = (p, warn, bad) => p >= bad ? "bad" : p >= warn ? "warn" : "ok";
 const kfmt = v => v == null ? "–" : v >= 10000 ? `${(v / 1000).toFixed(1)}k` : Math.round(v).toLocaleString();
 
@@ -119,12 +119,12 @@ function Overview({ st, run, runInfo, runs, C, phone }) {
   else if (finished) { title = "Run finished"; sub = `${n0(clipsDone)} clips · ${n0(st.tracks?.n)} vehicles · ${n0(st.tracks?.with_plate)} with a plate · ${fmtDur(prog.elapsed_s)} in all`; }
   else if (!running) { title = "Run stopped"; sub = prog ? `last heard ${fmtDur(prog.age_s)} ago in "${STAGE_NAMES[prog.current] || prog.current}" · resumes where it stopped when started again` : "No progress file yet."; }
   else { title = `${STAGE_NAMES[prog.current] || prog.current} · ${n0(stage?.done)} of ${n0(stage?.total)}`; sub = `${stage?.eta_s != null ? `about ${fmtDur(stage.eta_s)} left in this stage · ` : ""}${fmtDur(prog.elapsed_s)} so far${prog.started ? ` · started ${new Date((prog.started > 1e12 ? prog.started : prog.started * 1000)).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}`; }
-  const ringColor = finished ? C.GREEN : running ? RUN : T.colorNeutralForeground3;
+  const ringColor = finished ? C.GREEN : running ? C.GREEN : T.colorNeutralForeground3;
 
   // the stage bar: green done, brand in progress (with a pale remainder), grey ahead
   const stagesArr = Object.entries(prog?.stages || {});
   const stageBar = stagesArr.length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-    <div style={{ display: "flex", gap: 4 }}>{stagesArr.map(([k, s]) => { const d = s.total ? s.done / s.total : 0; return <div key={k} style={{ flex: STAGE_MIN[k] || 10, height: 12, borderRadius: 6, background: d >= 1 ? C.GREEN : d > 0 ? `linear-gradient(90deg, ${RUN} ${d * 100}%, ${RUN}44 ${d * 100}%)` : T.colorNeutralBackground3, transition: "background .6s" }} />; })}</div>
+    <div style={{ display: "flex", gap: 4 }}>{stagesArr.map(([k, s]) => { const d = s.total ? s.done / s.total : 0; return <div key={k} style={{ flex: STAGE_MIN[k] || 10, height: 12, borderRadius: 6, background: d >= 1 ? C.GREEN : d > 0 ? `linear-gradient(90deg, ${C.GREEN} ${d * 100}%, ${C.GREEN}33 ${d * 100}%)` : T.colorNeutralBackground3, transition: "background .6s" }} />; })}</div>
     <div style={{ display: "flex", gap: 4 }}>{stagesArr.map(([k, s]) => <Text key={k} size={100} style={{ ...faint, flex: STAGE_MIN[k] || 10, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{STAGE_NAMES[k] || k}{s.done >= s.total ? " ✓" : s.done > 0 ? ` · ${Math.round(100 * s.done / Math.max(1, s.total))}%` : ""}</Text>)}</div>
   </div>;
 
@@ -161,9 +161,18 @@ function Overview({ st, run, runInfo, runs, C, phone }) {
     <Funnel C={C} steps={[{ label: "Clips", v: clipsDone, note: `of ${n0(clipsAll)}` }, { label: "Frames", v: st.frames, note: "sampled" }, { label: "Vehicles", v: st.tracks?.n, note: "tracked" },
       { label: "With a plate", v: st.tracks?.with_plate, note: "box ≥ 28 px", color: C.BRAND }, { label: "Confident reads", v: reads.cct_s ?? reads.mobilevit, note: "cct · 70%+", color: C.BRAND },
       { label: "Vision answers", v: vlmAns, note: `of ${n0(vlmAsked)} asked`, color: C.BRAND }, { label: "Labelled by you", v: st.labelled, note: "", color: C.AMBER }]} />
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginTop: 4 }}>
-      {(st.vlm || []).map(m => <Text key={m.model} size={200} style={muted}><b>{MODEL_SHORT(m.model)}</b> {n0(m.answered)}/{n0(m.asked)}{m.avg_s ? ` · ${m.avg_s} s` : ""}</Text>)}
-    </div>
+    {(st.vlm || []).length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}><Text size={300} weight="semibold" style={{ whiteSpace: "nowrap" }}>Vision models</Text><Text size={200} style={faint}>plates answered, and time per plate</Text></div>
+      {(st.vlm || []).slice().sort((a, b) => (b.answered / Math.max(1, b.asked)) - (a.answered / Math.max(1, a.asked))).map(m => { const share = m.asked ? m.answered / m.asked : 0, sec = m.avg_s;
+        const speed = sec == null ? null : sec < 1 ? ["fast", C.GREEN] : sec < 10 ? ["steady", C.AMBER] : ["slow", RED];
+        return <div key={m.model} style={{ display: "grid", gridTemplateColumns: "118px 1fr auto auto", alignItems: "center", gap: 10 }}>
+          <Text size={200} style={muted} truncate>{MODEL_SHORT(m.model)}</Text>
+          <div style={{ height: 10, borderRadius: 5, background: T.colorNeutralBackground3, overflow: "hidden" }}><div style={{ width: `${Math.round(share * 100)}%`, height: "100%", borderRadius: 5, background: C.BRAND, transition: "width .6s" }} /></div>
+          <Text size={200} style={{ ...tab, whiteSpace: "nowrap", minWidth: 86, textAlign: "right" }}><b>{n0(m.answered)}</b><span style={faint}> of {n0(m.asked)}</span></Text>
+          <span title={speed ? `${sec} s per plate` : "no timing yet"} style={{ display: "inline-flex", alignItems: "center", gap: 5, minWidth: 74, justifyContent: "flex-end" }}><span style={{ width: 8, height: 8, borderRadius: 4, background: speed ? speed[1] : T.colorNeutralStroke1 }} /><Text size={200} style={{ ...tab, color: speed ? speed[1] : T.colorNeutralForeground3, whiteSpace: "nowrap" }}>{sec == null ? "–" : sec >= 10 ? `${Math.round(sec)} s` : `${sec} s`}</Text></span>
+        </div>; })}
+      <Text size={100} style={faint}>bar = share of plates answered · dot = speed per plate: green under 1 s, amber under 10 s, red slower</Text>
+    </div>}
   </Card>;
 
   // the machine over the run: six smoothed areas, current value beside each
@@ -173,7 +182,7 @@ function Overview({ st, run, runInfo, runs, C, phone }) {
   const teleCard = rows.length > 2 && <Card style={{ padding: "16px 20px", gap: 12 }}>
     <div><Text size={400} weight="semibold" block>The machine, over the run</Text><Text size={200} style={faint}>{tele.samples.toLocaleString()} samples · one point every {tele.every_s >= 60 ? `${Math.round(tele.every_s / 60)} min` : `${tele.every_s} s`} · smoothed</Text></div>
     <div style={{ display: "grid", gridTemplateColumns: phone ? "1fr" : "repeat(3, 1fr)", gap: "14px 26px" }}>
-      <Area id="gpu" title="GPU load" values={ser("gpu_util")} color={RUN} yMax={100} labels={tl} value={`${Math.round(lastOf("gpu_util") ?? 0)} %`} />
+      <Area id="gpu" title="GPU load" values={ser("gpu_util")} color="#F97066" yMax={100} labels={tl} value={`${Math.round(lastOf("gpu_util") ?? 0)} %`} />
       <Area id="cpu" title="CPU load" values={ser("cpu_pct")} color={T.colorPaletteBlueForeground2} yMax={100} labels={tl} value={`${Math.round(lastOf("cpu_pct") ?? 0)} %`} />
       <Area id="vram" title="VRAM" values={ser("vram_used_gb")} color={RED} yMax={sys?.vram_total_gb || undefined} labels={tl} value={`${(lastOf("vram_used_gb") ?? 0).toFixed(1)} GB`} />
       <Area id="ram" title="RAM" values={ser("ram_used_gb")} color={T.colorPaletteTealForeground2} yMax={sys?.ram_total_gb || undefined} labels={tl} value={`${(lastOf("ram_used_gb") ?? 0).toFixed(1)} GB`} />

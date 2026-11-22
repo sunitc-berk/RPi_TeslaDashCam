@@ -54,14 +54,17 @@ function useSpotter() {
   }, []);
   return v;
 }
+const SPOT_GREEN = T.colorPaletteGreenForeground1;
 const SpotRing = ({ pct, size = 40, stroke = 3 }) => { const r = (size - stroke) / 2, c = 2 * Math.PI * r; return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true" style={{ position: "absolute" }}>
-  <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={T.colorNeutralStroke2} strokeWidth={stroke} /><circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={T.colorBrandForeground1} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={`${c * Math.min(100, pct) / 100} ${c}`} transform={`rotate(-90 ${size / 2} ${size / 2})`} /></svg>; };
+  <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={T.colorNeutralStroke2} strokeWidth={stroke} /><circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={SPOT_GREEN} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={`${c * Math.min(100, pct) / 100} ${c}`} transform={`rotate(-90 ${size / 2} ${size / 2})`} /></svg>; };
+// the small green "61%" pill on the icon while a run is going
+const SpotPct = ({ pct, style }) => <span style={{ position: "absolute", padding: "1px 5px", borderRadius: 8, background: SPOT_GREEN, color: "#fff", fontSize: 10, fontWeight: 700, lineHeight: "12px", fontVariantNumeric: "tabular-nums", boxShadow: `0 0 0 2px ${T.colorNeutralBackground1}`, ...style }}>{Math.floor(pct)}%</span>;
 
 const RailItem = ({ on, label, R, F, href, title, ring }) => <a href={href} title={title} className="rail-item" aria-current={on ? "page" : undefined} style={{ position: "relative", width: 76, height: 64, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, borderRadius: T.borderRadiusLarge, textDecoration: "none",
   background: on ? T.colorNeutralBackground1 : "transparent", boxShadow: on ? T.shadow2 : "none", color: on ? T.colorBrandForeground1 : T.colorNeutralForeground2 }}>
   {on && <span style={{ position: "absolute", left: 0, top: 18, bottom: 18, width: 3, borderRadius: 2, background: T.colorBrandForeground1 }} />}
-  {ring ? <span style={{ position: "relative", width: 40, height: 40, display: "grid", placeItems: "center" }}><SpotRing pct={ring.pct} />{on ? <F /> : <R />}</span> : (on ? <F /> : <R />)}
-  <Text size={200} weight={on ? "semibold" : "regular"} style={{ color: "inherit", fontVariantNumeric: "tabular-nums" }}>{ring ? `${Math.floor(ring.pct)}%` : label}</Text></a>;
+  {ring ? <span style={{ position: "relative", width: 40, height: 40, display: "grid", placeItems: "center" }}><SpotRing pct={ring.pct} />{on ? <F /> : <R />}<SpotPct pct={ring.pct} style={{ right: -14, top: -4 }} /></span> : (on ? <F /> : <R />)}
+  <Text size={200} weight={on ? "semibold" : "regular"} style={{ color: "inherit" }}>{label}</Text></a>;
 
 function Rail({ on }) {
   const live = useStore(LIVE), p = pillState(live), spot = useSpotter();
@@ -122,8 +125,8 @@ function PhoneTabs({ on }) {
     {RAIL.map(([k, l, page, R, F]) => { const sel = k === on, busy = k === "uploads" && up, spotting = k === "plates" && spot.live; return <a key={k} href={`#/${page}`} className="ptab" aria-current={sel ? "page" : undefined} aria-label={busy ? `${l}, ${Math.floor(p.pct)} percent` : spotting ? `${l}, run ${Math.floor(spot.pct)} percent done` : l}
       style={{ flex: 1, height: 60, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, textDecoration: "none", color: sel ? T.colorBrandForeground1 : T.colorNeutralForeground3 }}>
       <span style={{ position: "relative", display: "grid", placeItems: "center", width: 44, height: 26, borderRadius: 13, background: sel ? T.colorNeutralBackground3 : "transparent" }}>{spotting && <SpotRing pct={spot.pct} size={30} stroke={2.5} />}{sel ? <F /> : <R />}
-        {busy && <PresenceBadge status="busy" size="extra-small" style={{ position: "absolute", top: 1, right: 6 }} />}</span>
-      <Text size={200} weight={sel ? "semibold" : "regular"} style={{ color: "inherit", fontVariantNumeric: "tabular-nums" }}>{busy ? `${Math.floor(p.pct)}%` : spotting ? `${Math.floor(spot.pct)}%` : l}</Text></a>; })}
+        {busy && <PresenceBadge status="busy" size="extra-small" style={{ position: "absolute", top: 1, right: 6 }} />}{spotting && <SpotPct pct={spot.pct} style={{ right: -12, top: -8 }} />}</span>
+      <Text size={200} weight={sel ? "semibold" : "regular"} style={{ color: "inherit", fontVariantNumeric: "tabular-nums" }}>{busy ? `${Math.floor(p.pct)}%` : l}</Text></a>; })}
   </nav>;
 }
 
