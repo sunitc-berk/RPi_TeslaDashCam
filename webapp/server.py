@@ -371,15 +371,34 @@ def media(path: str):
     return FileResponse(full)                     # supports Range requests (seeking)
 
 
-# ------------------------------------------------------------------ plate analysis (the GPU machine writes its run into analysis/bench on this share)
-ANALYSIS: Path = Path(SETTINGS.get("analysis_root") or (ROOT / "analysis" / "bench")).resolve()
+# ------------------------------------------------------------------ plate analysis
+# The GPU machine writes each run into its own folder under <share>\analysis (bench, bench-smoke, enhance ...).  This server
+# only reads those; the one thing it writes is the labels you type in the browser (labels.sqlite next to the runs, plus a
+# truth.csv inside the run folder so the analysis scripts on the GPU machine can score against it).
+_cfg = Path(SETTINGS.get("analysis_root") or (ROOT / "analysis")).resolve()
+ANALYSIS_ROOT: Path = _cfg.parent if (_cfg / "bench.sqlite").exists() else _cfg
 _PLATE_FORMATS = [r"^\d{2}[A-Z]\d{3}$", r"^\d{3}[A-Z]\d{2}$", r"^\d{3}[A-Z]{3}$", r"^[A-Z]{3}\d{3}$", r"^\d{2}[A-Z]{2}\d{3}$",
                   r"^\d[A-Z]{3}\d{3}$", r"^[A-Z]{3}\d{4}$", r"^\d{3}[A-Z]{4}$", r"^[A-Z]\d{5}$", r"^[A-Z]\d{2}[A-Z]{2}\d$"]
+_LABELS_LOCK = threading.Lock()
 
 
-def _adb():
-    """read-only connection to the benchmark database; the GPU machine is the only writer"""
-    p = ANALYSIS / "bench.sqlite"
+def _format_ok(t):
+    return bool(t) and any(re.match(p, t) for p in _PLATE_FORMATS)
+
+
+def _run_dir(run: str) -> Path:
+    """a run folder by name; names are plain folder names, nothing else is accepted"""
+    if not run or not re.match(r"^[A-Za-z0-9_.-]{1,64}$", run):
+        raise HTTPException(400, "bad run name")
+    d = (ANALYSIS_ROOT / run).resolve()
+    if ANALYSIS_ROOT not in d.parents or not d.is_dir():
+        raise HTTPException(404, "no such run")
+    return d
+
+
+def _adb(run_dir: Path, name="bench.sqlite"):
+    """read-only connection; the GPU machine is the only writer"""
+    p = run_dir / name
     if not p.is_file():
         return None
     con = sqlite3.connect(f"file:{p.as_posix()}?mode=ro", uri=True, timeout=2)
@@ -394,40 +413,201 @@ def _arows(con, sql, args=()):
         return []
 
 
-@app.get("/api/plates/status")
-def plates_status():
-    out = {"available": False, "root": str(ANALYSIS)}
-    pj = ANALYSIS / "progress.json"
-    if pj.is_file():
+def _one(con, sql, args=(), default=None):
+    r = _arows(con, sql, args)
+    return r[0] if r else default
+
+
+def _progress(run_dir: Path):
+    pj = run_dir / "progress.json"
+    if not pj.is_file():
+        return None
+    try:
+        prog = json.loads(pj.read_text())
+        prog["age_s"] = round(time.time() - pj.stat().st_mtime)
+        return prog
+    except (OSError, ValueError):
+        return None
+
+
+# ---- labels (the only thing this server writes)
+def _ldb():
+    p = ANALYSIS_ROOT / "labels.sqlite"
+    ANALYSIS_ROOT.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(p.as_posix(), timeout=5)
+    con.execute("CREATE TABLE IF NOT EXISTS labels(run TEXT, track_id INTEGER, truth TEXT, note TEXT, updated TEXT, PRIMARY KEY(run, track_id))")
+    return con
+
+
+def _labels(run: str) -> dict:
+    """{track_id: {truth, note, updated}} for a run; falls back to a truth.csv / labels.csv written by hand"""
+    out = {}
+    try:
+        con = _ldb()
+        for r in con.execute("SELECT track_id, truth, note, updated FROM labels WHERE run=?", (run,)):
+            out[r[0]] = {"truth": r[1], "note": r[2] or "", "updated": r[3]}
+        con.close()
+    except sqlite3.Error:
+        pass
+    if not out:
         try:
-            prog = json.loads(pj.read_text())
-            prog["age_s"] = round(time.time() - pj.stat().st_mtime)
-            out["progress"] = prog
-            out["available"] = True
+            import csv as _csv
+            p = ANALYSIS_ROOT / run / "labels.csv"
+            if p.is_file():
+                with p.open(newline="", encoding="utf-8") as f:
+                    for r in _csv.DictReader(f):
+                        t = re.sub(r"[^A-Z0-9?]", "", (r.get("truth") or "").upper())
+                        if t:
+                            out[int(r["track_id"])] = {"truth": t, "note": "from labels.csv", "updated": None}
         except (OSError, ValueError):
             pass
-    con = _adb()
+    return out
+
+
+def _write_truth_csv(run: str):
+    """truth.csv inside the run folder, for the scripts on the GPU machine"""
+    try:
+        import csv as _csv
+        d = ANALYSIS_ROOT / run
+        if not d.is_dir():
+            return
+        rows = _labels(run)
+        with (d / "truth.csv").open("w", newline="", encoding="utf-8") as f:
+            w = _csv.writer(f)
+            w.writerow(["track_id", "truth", "note", "updated"])
+            for tid in sorted(rows):
+                w.writerow([tid, rows[tid]["truth"], rows[tid]["note"], rows[tid]["updated"]])
+    except OSError:
+        pass
+
+
+class LabelIn(BaseModel):
+    run: str
+    track_id: int
+    truth: str = ""
+    note: str = ""
+
+
+@app.post("/api/plates/label")
+def plates_label(v: LabelIn):
+    _run_dir(v.run)
+    truth = re.sub(r"[^A-Z0-9?]", "", v.truth.upper())[:10]
+    with _LABELS_LOCK:
+        con = _ldb()
+        if truth:
+            con.execute("INSERT OR REPLACE INTO labels VALUES (?,?,?,?,?)", (v.run, v.track_id, truth, v.note[:200], datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        else:
+            con.execute("DELETE FROM labels WHERE run=? AND track_id=?", (v.run, v.track_id))
+        con.commit(); con.close()
+        _write_truth_csv(v.run)
+    return {"ok": True, "truth": truth}
+
+
+@app.get("/api/plates/labels.csv")
+def plates_labels_csv(run: str):
+    _run_dir(run)
+    rows = _labels(run)
+    body = "track_id,truth,note,updated\n" + "".join(f"{tid},{r['truth']},{(r['note'] or '').replace(',', ' ')},{r['updated'] or ''}\n" for tid, r in sorted(rows.items()))
+    from fastapi.responses import Response
+    return Response(body, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=truth-{run}.csv"})
+
+
+# ---- runs
+@app.get("/api/plates/runs")
+def plates_runs():
+    out = []
+    if not ANALYSIS_ROOT.is_dir():
+        return {"root": str(ANALYSIS_ROOT), "runs": []}
+    for d in sorted(ANALYSIS_ROOT.iterdir()):
+        if not d.is_dir():
+            continue
+        kind = "bench" if (d / "bench.sqlite").is_file() else "enhance" if (d / "enhance.sqlite").is_file() else None
+        if not kind:
+            continue
+        r = {"name": d.name, "kind": kind, "live": False}
+        prog = _progress(d)
+        if prog:
+            r["started"] = prog.get("started"); r["elapsed_s"] = prog.get("elapsed_s"); r["age_s"] = prog.get("age_s")
+            r["current"] = prog.get("current"); r["stages"] = prog.get("stages")
+            r["live"] = prog.get("age_s", 1e9) < 180 and not all(s.get("done", 0) >= s.get("total", 0) for s in (prog.get("stages") or {}).values())
+            r["pct"] = _overall_pct(prog)
+        con = _adb(d, "bench.sqlite" if kind == "bench" else "enhance.sqlite")
+        if con is not None:
+            try:
+                if kind == "bench":
+                    r["run"] = _one(con, "SELECT name, started, finished, status, machine, gpu, driver, versions, code_hash, notes FROM runs ORDER BY id DESC LIMIT 1")
+                    c = _one(con, "SELECT COUNT(*) n, SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) done FROM clips", default={})
+                    t = _one(con, "SELECT COUNT(*) n, SUM(CASE WHEN best_crop IS NOT NULL THEN 1 ELSE 0 END) with_plate FROM tracks", default={})
+                    r.update(clips=c.get("n", 0), clips_done=c.get("done", 0) or 0, tracks=t.get("n", 0), with_plate=t.get("with_plate", 0) or 0)
+                    r["v2"] = bool(_arows(con, "SELECT 1 FROM frames LIMIT 1"))
+                else:
+                    t = _one(con, "SELECT COUNT(*) n, SUM(matched) matched FROM tracks", default={})
+                    r.update(tracks=t.get("n", 0), matched=t.get("matched", 0) or 0)
+            finally:
+                con.close()
+        r["labelled"] = len(_labels(d.name)) if kind == "bench" else 0
+        out.append(r)
+    out.sort(key=lambda r: (0 if r["live"] else 1, -(os.path.getmtime(ANALYSIS_ROOT / r["name"]))))
+    return {"root": str(ANALYSIS_ROOT), "runs": out}
+
+
+def _overall_pct(prog):
+    st = prog.get("stages") or {}
+    if not st:
+        return 0
+    weights = {"clips": 50, "subset": 10, "vlm": 38, "report": 2, "enhance": 100}
+    tot = sum(weights.get(k, 10) for k in st)
+    return round(sum(weights.get(k, 10) * min(1, (v.get("done", 0) / max(1, v.get("total", 1)))) for k, v in st.items()) / max(1, tot) * 100, 1)
+
+
+def _latest_run():
+    runs = plates_runs()["runs"]
+    bench = [r for r in runs if r["kind"] == "bench" and not r["name"].endswith("smoke")] or [r for r in runs if r["kind"] == "bench"]
+    return bench[0]["name"] if bench else None
+
+
+# ---- one run: status
+@app.get("/api/plates/status")
+def plates_status(run: str = ""):
+    run = run or _latest_run()
+    out = {"available": False, "root": str(ANALYSIS_ROOT), "run": run}
+    if not run:
+        return out
+    d = _run_dir(run)
+    prog = _progress(d)
+    if prog:
+        out["progress"] = prog; out["available"] = True
+    con = _adb(d)
     if con is None:
         return out
     try:
         out["available"] = True
+        out["meta"] = _one(con, "SELECT name, started, finished, status, machine, gpu, driver, versions, args, code_hash, notes FROM runs ORDER BY id DESC LIMIT 1")
+        if out["meta"]:
+            for k in ("versions", "args"):
+                try: out["meta"][k] = json.loads(out["meta"][k] or "{}")
+                except ValueError: pass
         c = _arows(con, "SELECT status, COUNT(*) n, SUM(frames) frames FROM clips GROUP BY status")
         out["clips"] = {r["status"]: r["n"] for r in c}
         out["frames"] = sum(r["frames"] or 0 for r in c)
         out["by_camera"] = _arows(con, """SELECT camera, bucket, COUNT(*) clips, SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) done,
                                           SUM(n_vehicles_m) vehicles FROM clips GROUP BY camera, bucket ORDER BY camera, bucket""")
-        t = _arows(con, "SELECT COUNT(*) n, SUM(CASE WHEN best_crop IS NOT NULL THEN 1 ELSE 0 END) with_plate FROM tracks")
-        out["tracks"] = t[0] if t else {}
-        out["plate_boxes"] = (_arows(con, "SELECT COUNT(DISTINCT track_id||'/'||frame_sec) n FROM plates WHERE detector='alpr_v9t' AND det_conf>=0.5") or [{"n": 0}])[0]["n"]
+        out["tracks"] = _one(con, "SELECT COUNT(*) n, SUM(CASE WHEN best_crop IS NOT NULL THEN 1 ELSE 0 END) with_plate FROM tracks", default={})
+        pb = _one(con, "SELECT COUNT(*) n FROM plate_boxes")
+        out["plate_boxes"] = pb["n"] if pb and pb["n"] else (_one(con, "SELECT COUNT(DISTINCT track_id||'/'||frame_sec) n FROM plates WHERE detector='alpr_v9t' AND det_conf>=0.5", default={"n": 0})["n"])
         out["reads"] = _arows(con, """SELECT reader, COUNT(*) n FROM plates WHERE detector='alpr_v9t' AND det_conf>=0.5 AND prep='pad_up'
                                        AND conf>=0.7 AND LENGTH(text)>=5 GROUP BY reader""")
         out["vlm"] = _arows(con, """SELECT model, COUNT(*) asked, SUM(CASE WHEN text NOT IN ('?','ERR','') THEN 1 ELSE 0 END) answered,
-                                     ROUND(AVG(seconds),1) avg_s FROM vlm GROUP BY model""")
-        ex = _arows(con, "SELECT value FROM experiments WHERE name='sample' AND key='summary'")
+                                     ROUND(AVG(seconds),1) avg_s, ROUND(AVG(tok_s),1) tok_s FROM vlm GROUP BY model""")
+        out["timings"] = _arows(con, "SELECT stage, ROUND(SUM(ms)/1000,1) s, SUM(n) n, ROUND(SUM(ms)/MAX(1,SUM(n)),1) ms_each FROM timings GROUP BY stage ORDER BY s DESC")
+        out["totals"] = _one(con, """SELECT SUM(t_decode) decode_s, SUM(t_detect) detect_s, SUM(t_plates) plates_s, SUM(n_vehicles_m) vehicles,
+                                      SUM(size_bytes) bytes, SUM(duration_s) footage_s, AVG(moving_share) moving_share FROM clips WHERE status='done'""", default={})
+        ex = _one(con, "SELECT value FROM experiments WHERE name='sample' AND key='summary'")
         if ex:
-            try: out["sample"] = json.loads(ex[0]["value"])
+            try: out["sample"] = json.loads(ex["value"])
             except ValueError: pass
         out["errors"] = _arows(con, "SELECT name, err FROM clips WHERE status='error' ORDER BY id DESC LIMIT 5")
+        out["labelled"] = len(_labels(run))
     finally:
         con.close()
     return out
@@ -442,36 +622,254 @@ def _vote(rows):
     if not score:
         return None
     best = max(score, key=score.get)
-    return {"text": best, "score": round(score[best], 2), "format_ok": any(re.match(p, best) for p in _PLATE_FORMATS)}
+    return {"text": best, "score": round(score[best], 2), "format_ok": _format_ok(best)}
 
 
-@app.get("/api/plates/recent")
-def plates_recent(limit: int = 48, offset: int = 0):
-    con = _adb()
+# ---- vehicles (the grid)
+@app.get("/api/plates/tracks")
+def plates_tracks(run: str = "", camera: str = "", bucket: str = "", min_pw: int = 0, q: str = "", labelled: str = "",
+                  color: str = "", sort: str = "newest", limit: int = 48, offset: int = 0):
+    run = run or _latest_run()
+    if not run:
+        return {"items": [], "total": 0, "run": None}
+    d = _run_dir(run); con = _adb(d)
     if con is None:
-        return {"items": []}
+        return {"items": [], "total": 0, "run": run}
     try:
-        tracks = _arows(con, """SELECT t.id, t.best_crop, t.best_context, t.best_plate_w, t.best_det_conf, t.n_frames, t.max_w, t.first_sec,
-                                       c.name clip, c.camera, c.bucket, c.date, c.hour
-                                FROM tracks t JOIN clips c ON c.id=t.clip_id WHERE t.best_crop IS NOT NULL
-                                ORDER BY t.id DESC LIMIT ? OFFSET ?""", (limit, offset))
+        labels = _labels(run)
+        where = ["t.best_crop IS NOT NULL"]; args: list = []
+        if camera: where.append("c.camera=?"); args.append(camera)
+        if bucket: where.append("c.bucket=?"); args.append(bucket)
+        if min_pw: where.append("t.best_plate_w>=?"); args.append(min_pw)
+        if color: where.append("t.color=?"); args.append(color)
+        q = re.sub(r"[^A-Z0-9]", "", q.upper())
+        if q:
+            where.append("""(t.id IN (SELECT track_id FROM plates WHERE text LIKE ?) OR t.id IN (SELECT track_id FROM vlm WHERE text LIKE ?))""")
+            args += [f"%{q}%", f"%{q}%"]
+        if labelled == "yes":
+            ids = list(labels) or [-1]; where.append(f"t.id IN ({','.join('?' * len(ids))})"); args += ids
+        elif labelled == "no" and labels:
+            ids = list(labels); where.append(f"t.id NOT IN ({','.join('?' * len(ids))})"); args += ids
+        order = {"newest": "t.id DESC", "oldest": "t.id ASC", "biggest": "t.best_plate_w DESC, t.id DESC", "smallest": "t.best_plate_w ASC, t.id DESC",
+                 "sharpest": "t.sharp_best DESC, t.id DESC", "clip": "c.date DESC, c.hour DESC, t.id DESC"}.get(sort, "t.id DESC")
+        w = " AND ".join(where)
+        total = _one(con, f"SELECT COUNT(*) n FROM tracks t JOIN clips c ON c.id=t.clip_id WHERE {w}", args, default={"n": 0})["n"]
+        tracks = _arows(con, f"""SELECT t.id, t.best_crop, t.best_context, t.best_plate_w, t.best_det_conf, t.n_frames, t.max_w, t.first_sec, t.last_sec,
+                                        t.cls, t.color, t.sharp_best, t.n_plate_frames, t.crops, t.entry_side, t.exit_side, t.mean_dw,
+                                        c.name clip, c.camera, c.bucket, c.date, c.hour
+                                 FROM tracks t JOIN clips c ON c.id=t.clip_id WHERE {w} ORDER BY {order} LIMIT ? OFFSET ?""", args + [limit, offset])
         for t in tracks:
             reads = _arows(con, "SELECT reader, text, conf FROM plates WHERE track_id=? AND detector='alpr_v9t' AND prep='pad_up' AND det_conf>=0.5", (t["id"],))
-            by = {}
+            by: dict = {}
             for r in reads:
                 by.setdefault(r["reader"], []).append(r)
             t["fast"] = {k: _vote(v) for k, v in by.items()}
             t["vlm"] = {r["model"]: r["text"] for r in _arows(con, "SELECT model, text FROM vlm WHERE track_id=?", (t["id"],))}
             t["frames_read"] = len({r["conf"] for r in reads if r["conf"] and r["conf"] >= 0.7})
-        return {"items": tracks}
+            try: t["crops"] = json.loads(t["crops"]) if t["crops"] else []
+            except ValueError: t["crops"] = []
+            lab = labels.get(t["id"])
+            t["truth"] = lab["truth"] if lab else None
+        return {"items": tracks, "total": total, "run": run, "labelled": len(labels)}
     finally:
         con.close()
 
 
-@app.get("/plates-media/{name}")
-def plates_media(name: str):
-    full = (ANALYSIS / "crops" / name).resolve()
-    if (ANALYSIS / "crops").resolve() not in full.parents or not full.is_file():
+# ---- one vehicle in full
+@app.get("/api/plates/track/{track_id}")
+def plates_track(track_id: int, run: str = ""):
+    run = run or _latest_run()
+    d = _run_dir(run); con = _adb(d)
+    if con is None:
+        raise HTTPException(404)
+    try:
+        t = _one(con, """SELECT t.*, c.name clip, c.camera, c.bucket, c.date, c.hour, c.w clip_w, c.h clip_h, c.fps clip_fps, c.path clip_path
+                         FROM tracks t JOIN clips c ON c.id=t.clip_id WHERE t.id=?""", (track_id,))
+        if not t:
+            raise HTTPException(404)
+        t.pop("embedding", None)
+        try: t["crops"] = json.loads(t["crops"]) if t.get("crops") else []
+        except ValueError: t["crops"] = []
+        t["boxes"] = _arows(con, """SELECT id, sec, detector, det_conf, pw, ph, aspect, sharpness, brightness, contrast, skew_deg, crop_file, kept
+                                    FROM plate_boxes WHERE track_id=? ORDER BY sec""", (track_id,))
+        reads = _arows(con, "SELECT frame_sec sec, detector, det_conf, pw, prep, reader, text, conf, char_confs, ms, box_id FROM plates WHERE track_id=? ORDER BY frame_sec, reader, prep", (track_id,))
+        for r in reads:
+            try: r["char_confs"] = json.loads(r["char_confs"]) if r.get("char_confs") else None
+            except ValueError: r["char_confs"] = None
+        t["reads"] = reads
+        by: dict = {}
+        for r in reads:
+            if r["detector"] == "alpr_v9t" and r["prep"] == "pad_up" and (r["det_conf"] or 0) >= 0.5:
+                by.setdefault(r["reader"], []).append(r)
+        t["fast"] = {k: _vote(v) for k, v in by.items()}
+        t["vlm"] = _arows(con, "SELECT model, text, raw, seconds, prompt_ver, prompt_tokens, eval_tokens, tok_s, think_off, image_w, crop_file FROM vlm WHERE track_id=? ORDER BY model", (track_id,))
+        t["path"] = _arows(con, "SELECT f.sec, d.x1, d.y1, d.x2, d.y2, d.bw, d.conf, d.cls, d.dw FROM detections d JOIN frames f ON f.id=d.frame_id WHERE d.track_id=? ORDER BY f.sec", (track_id,))
+        lab = _labels(run).get(track_id)
+        t["truth"] = lab["truth"] if lab else None; t["note"] = lab["note"] if lab else ""
+        # neighbours for the Previous / Next buttons
+        nxt = _one(con, "SELECT id FROM tracks WHERE id>? AND best_crop IS NOT NULL ORDER BY id LIMIT 1", (track_id,))
+        prv = _one(con, "SELECT id FROM tracks WHERE id<? AND best_crop IS NOT NULL ORDER BY id DESC LIMIT 1", (track_id,))
+        t["next_id"] = nxt["id"] if nxt else None; t["prev_id"] = prv["id"] if prv else None
+        t["run"] = run
+        return t
+    finally:
+        con.close()
+
+
+# ---- charts: distributions and time series
+@app.get("/api/plates/charts")
+def plates_charts(run: str = ""):
+    run = run or _latest_run()
+    d = _run_dir(run); con = _adb(d)
+    out = {"run": run}
+    if con is None:
+        return out
+    try:
+        out["plate_width"] = _arows(con, """SELECT CASE WHEN best_plate_w<40 THEN '<40' WHEN best_plate_w<60 THEN '40-60' WHEN best_plate_w<80 THEN '60-80'
+                                             WHEN best_plate_w<110 THEN '80-110' WHEN best_plate_w<160 THEN '110-160' ELSE '160+' END bucket, COUNT(*) n
+                                             FROM tracks WHERE best_crop IS NOT NULL GROUP BY bucket""")
+        out["per_camera"] = _arows(con, """SELECT c.camera, c.bucket, COUNT(*) tracks, SUM(CASE WHEN t.best_crop IS NOT NULL THEN 1 ELSE 0 END) with_plate
+                                           FROM tracks t JOIN clips c ON c.id=t.clip_id GROUP BY c.camera, c.bucket""")
+        out["colors"] = _arows(con, "SELECT color, COUNT(*) n FROM tracks WHERE best_crop IS NOT NULL AND color IS NOT NULL GROUP BY color ORDER BY n DESC")
+        out["classes"] = _arows(con, "SELECT cls, COUNT(*) n FROM tracks WHERE cls IS NOT NULL GROUP BY cls ORDER BY n DESC")
+        out["conf_hist"] = _arows(con, """SELECT reader, CAST(conf*10 AS INT)/10.0 bin, COUNT(*) n FROM plates
+                                          WHERE detector='alpr_v9t' AND prep='pad_up' AND det_conf>=0.5 AND text<>'' GROUP BY reader, bin ORDER BY reader, bin""")
+        out["throughput"] = _arows(con, """SELECT SUBSTR(processed,1,15)||'0' slot, COUNT(*) clips, SUM(frames) frames FROM clips
+                                           WHERE processed IS NOT NULL GROUP BY slot ORDER BY slot""")
+        out["clip_time"] = _arows(con, """SELECT camera, ROUND(AVG(t_decode),2) decode, ROUND(AVG(t_detect),2) detect, ROUND(AVG(t_plates),2) plates, COUNT(*) n
+                                          FROM clips WHERE status='done' GROUP BY camera""")
+        out["sharp_vs_width"] = _arows(con, """SELECT best_plate_w pw, sharp_best sharp, color FROM tracks WHERE best_crop IS NOT NULL AND sharp_best IS NOT NULL
+                                               ORDER BY RANDOM() LIMIT 600""")
+        out["motion"] = _arows(con, """SELECT CASE WHEN moving_share IS NULL THEN 'unknown' WHEN moving_share<0.2 THEN 'parked' WHEN moving_share<0.8 THEN 'mixed' ELSE 'driving' END state,
+                                       COUNT(*) clips, SUM(n_tracks) tracks FROM clips WHERE status='done' GROUP BY state""")
+        # the experiments stored as json
+        exps: dict = {}
+        for r in _arows(con, "SELECT name, key, value FROM experiments WHERE name IN ('sampling','detector')"):
+            try: v = json.loads(r["value"])
+            except ValueError: continue
+            mode = r["key"].split("|")[-1]
+            e = exps.setdefault(r["name"], {}).setdefault(mode, {"frames": 0, "seconds": 0, "vehicles": 0, "reads": 0, "clips": 0, "by_width": {}})
+            e["frames"] += v.get("frames", 0); e["seconds"] += v.get("seconds", 0); e["vehicles"] += v.get("vehicles", 0); e["reads"] += v.get("distinct_confident_reads", 0); e["clips"] += 1
+            for k, n in (v.get("by_width") or {}).items():
+                e["by_width"][k] = e["by_width"].get(k, 0) + n
+        out["experiments"] = exps
+    finally:
+        con.close()
+    return out
+
+
+@app.get("/api/plates/telemetry")
+def plates_telemetry(run: str = "", points: int = 240):
+    run = run or _latest_run()
+    d = _run_dir(run)
+    p = d / "telemetry.csv"
+    if not p.is_file():
+        return {"run": run, "rows": []}
+    import csv as _csv
+    try:
+        with p.open(newline="", encoding="utf-8") as f:
+            rows = list(_csv.DictReader(f))
+    except (OSError, ValueError):
+        return {"run": run, "rows": []}
+    keep = ["time", "cpu_pct", "ram_used_gb", "gpu_util", "vram_used_gb", "gpu_temp_c", "gpu_power_w", "cpu_temp_c", "disk_read_mbs", "disk_write_mbs", "net_rx_mbs", "net_tx_mbs"]
+    step = max(1, len(rows) // max(10, points))
+    out = []
+    for i in range(0, len(rows), step):
+        chunk = rows[i:i + step]
+        r = {"time": chunk[0].get("time")}
+        for k in keep[1:]:
+            vals = []
+            for c in chunk:
+                try: vals.append(float(c.get(k) or ""))
+                except ValueError: pass
+            r[k] = round(sum(vals) / len(vals), 1) if vals else None
+        out.append(r)
+    return {"run": run, "rows": out, "samples": len(rows), "every_s": step * 10}
+
+
+# ---- scorecard: every method against the labels
+def _lev(a, b):
+    if a == b: return 0
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+@app.get("/api/plates/scorecard")
+def plates_scorecard(run: str = ""):
+    run = run or _latest_run()
+    d = _run_dir(run); con = _adb(d)
+    labels = {tid: l["truth"] for tid, l in _labels(run).items() if l["truth"] and l["truth"] != "?"}
+    out = {"run": run, "labelled": len(labels), "methods": []}
+    if con is None or not labels:
+        return out
+    try:
+        ids = list(labels)
+        agg: dict = {}
+
+        def score(method, reader, tid, text, ms):
+            a = agg.setdefault((method, reader), {"method": method, "reader": reader, "n": 0, "exact": 0, "within1": 0, "answered": 0, "ms": 0.0, "ms_n": 0})
+            truth = labels[tid]; text = text or ""
+            a["n"] += 1
+            if text and text not in ("?", "ERR") and not text.startswith("ERR"):
+                a["answered"] += 1
+                if text == truth: a["exact"] += 1
+                if _lev(text, truth) <= 1: a["within1"] += 1
+            if ms is not None:
+                a["ms"] += ms; a["ms_n"] += 1
+
+        for chunk in (ids[i:i + 400] for i in range(0, len(ids), 400)):
+            ph = ",".join("?" * len(chunk))
+            reads = _arows(con, f"""SELECT track_id, prep, reader, text, conf, ms FROM plates WHERE detector='alpr_v9t' AND det_conf>=0.5 AND track_id IN ({ph})""", chunk)
+            per: dict = {}
+            for r in reads:
+                per.setdefault((r["track_id"], r["reader"], r["prep"]), []).append(r)
+            for (tid, reader, prep), rs in per.items():
+                v = _vote(rs)
+                ms = sum(r["ms"] or 0 for r in rs) if any(r["ms"] for r in rs) else None
+                score(f"vote/{prep}", reader, tid, v["text"] if v else "", ms)
+                best = max(rs, key=lambda r: r["conf"] or 0)
+                score(f"best-conf/{prep}", reader, tid, best["text"] if (best["conf"] or 0) >= 0.5 else "?", (best["ms"] if best["ms"] else None))
+            # every reader and prep together
+            per_t: dict = {}
+            for r in reads:
+                per_t.setdefault(r["track_id"], []).append(r)
+            for tid, rs in per_t.items():
+                v = _vote(rs); score("vote/all preps", "all readers", tid, v["text"] if v else "", None)
+            for r in _arows(con, f"SELECT track_id, model, text, seconds FROM vlm WHERE track_id IN ({ph})", chunk):
+                score("vlm/sharpest crop", r["model"], r["track_id"], r["text"], (r["seconds"] or 0) * 1000 if r["seconds"] else None)
+        # the enhancement experiment, if it ran against this benchmark
+        ed = ANALYSIS_ROOT / "enhance"
+        econ = _adb(ed, "enhance.sqlite") if ed.is_dir() else None
+        if econ is not None:
+            try:
+                for r in _arows(econ, "SELECT r.track_id, r.method, r.reader, r.text, r.ms FROM reads r JOIN tracks t ON t.track_id=r.track_id WHERE t.matched=1"):
+                    if r["track_id"] in labels:
+                        score(f"enhance/{r['method']}", r["reader"], r["track_id"], r["text"], r["ms"])
+            finally:
+                econ.close()
+        methods = []
+        for a in agg.values():
+            n = a["n"]
+            methods.append({"method": a["method"], "reader": a["reader"], "n": n, "exact": a["exact"], "exact_pct": round(100 * a["exact"] / n, 1),
+                            "within1": a["within1"], "within1_pct": round(100 * a["within1"] / n, 1), "answered": a["answered"],
+                            "answered_pct": round(100 * a["answered"] / n, 1), "ms": round(a["ms"] / a["ms_n"], 1) if a["ms_n"] else None})
+        methods.sort(key=lambda m: (-m["exact_pct"], -m["within1_pct"], m["ms"] or 1e9))
+        out["methods"] = methods
+    finally:
+        con.close()
+    return out
+
+
+@app.get("/plates-media/{run}/{name}")
+def plates_media(run: str, name: str):
+    d = _run_dir(run)
+    full = (d / "crops" / name).resolve()
+    if (d / "crops").resolve() not in full.parents or not full.is_file():
         raise HTTPException(404)
     return FileResponse(full, headers={"Cache-Control": "public, max-age=86400"})
 
